@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getCurrentUser, db, publicHandle, normalizeDisplayName } from '../lib/shared';
+import { getCurrentUser, db, publicHandle, normalizeDisplayName, randomHex } from '../lib/shared';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const u = await getCurrentUser(req);
@@ -37,6 +37,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const h = !!body.hidden;
       await db()`UPDATE users SET hidden = ${h} WHERE id = ${u.id}`;
       u.hidden = h;
+    }
+    // Rotate the HMAC agent token. Old token stops verifying immediately —
+    // anyone using the old credential gets `bad signature` from /api/ingest.
+    // Use this if you accidentally shared your token in a screenshot or repo.
+    if (body.rotate_token === true) {
+      const fresh = randomHex(32);
+      await db()`UPDATE users SET agent_token = ${fresh} WHERE id = ${u.id}`;
+      u.agent_token = fresh;
     }
     // Email subscription toggle (weekly digest). Setting email='' or null
     // unsubscribes; setting a valid address upserts the row.

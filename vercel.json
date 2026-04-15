@@ -2,6 +2,7 @@
   "rewrites": [
     { "source": "/install.sh", "destination": "/api/install" },
     { "source": "/u/:login", "destination": "/api/profile/:login?html=1" },
+    { "source": "/dome/:slug", "destination": "/api/domes?slug=:slug&html=1" },
     { "source": "/api/import/:provider", "destination": "/api/import?p=:provider" },
     { "source": "/api/domes/:slug", "destination": "/api/domes?slug=:slug" }
   ],

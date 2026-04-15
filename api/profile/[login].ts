@@ -98,6 +98,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // ─── ?og=1 → SVG image for social unfurls ─────────────────────────────────
   if (req.query.og === '1') {
+    // For non-anonymized users, fetch+inline their GitHub avatar so the
+    // OG renders consistently across crawlers (some don't fetch external
+    // URLs from inside an SVG). 256-byte cap defeats accidental hugs.
+    let avatarDataUrl: string | null = null;
+    if (publicAvatar) {
+      try {
+        const resp = await fetch(publicAvatar + '&s=160');
+        if (resp.ok) {
+          const ct = resp.headers.get('content-type') || 'image/png';
+          const buf = Buffer.from(await resp.arrayBuffer());
+          if (buf.byteLength < 200_000) {
+            avatarDataUrl = `data:${ct};base64,${buf.toString('base64')}`;
+          }
+        }
+      } catch { /* avatar embedding is decorative — fail silent */ }
+    }
     const svg = renderOgSvg({
       handle: publicLogin,
       total: lifetime.total,
@@ -106,6 +122,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       cost: lifetime.total_cost_cents,
       rank: rankObj.all_time,
       provider: topProvider || null,
+      avatar: avatarDataUrl,
     });
     res.setHeader('content-type', 'image/svg+xml; charset=utf-8');
     res.setHeader('cache-control', 'public, max-age=120, stale-while-revalidate=600');
@@ -170,12 +187,20 @@ function escapeHtml(s: string): string {
 
 // 1200×630 (Twitter / Facebook / LinkedIn standard) SVG. No external fonts —
 // uses system-ui so it renders identically without network roundtrips.
-function renderOgSvg(o: { handle: string; total: number; input: number; output: number; cost: number; rank: number | null; provider: string | null }): string {
+function renderOgSvg(o: { handle: string; total: number; input: number; output: number; cost: number; rank: number | null; provider: string | null; avatar: string | null }): string {
   const fmt = (n: number) => n.toLocaleString('en-US');
   const compact = (n: number) => n >= 1_000_000 ? (n / 1_000_000).toFixed(1) + 'M' : n >= 1_000 ? (n / 1_000).toFixed(1) + 'K' : String(n);
   const cost = (o.cost / 100).toFixed(2);
+  // Avatar is optional. When present we shrink the headline a touch and shift
+  // it right to make room for the 160×160 image with a yellow border.
+  const handleX = o.avatar ? 260 : 60;
+  const avatarBlock = o.avatar
+    ? `<defs><clipPath id="avc"><rect x="60" y="200" width="160" height="160"/></clipPath></defs>
+       <image href="${o.avatar}" x="60" y="200" width="160" height="160" clip-path="url(#avc)" preserveAspectRatio="xMidYMid slice"/>
+       <rect x="60" y="200" width="160" height="160" fill="none" stroke="#facc15" stroke-width="3"/>`
+    : '';
   return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="630" viewBox="0 0 1200 630">
   <defs>
     <style>
       .display { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; font-weight: 900; font-style: italic; }
@@ -189,8 +214,9 @@ function renderOgSvg(o: { handle: string; total: number; input: number; output: 
   <text x="60"   y="115" class="display" font-size="38" fill="#facc15">⚡ THE TOKENDOME</text>
   <text x="60"   y="150" class="label"   font-size="16" fill="#94A3B8" letter-spacing="0.3em">VERIFIED PROXY · LIVE LEADERBOARD</text>
 
-  <text x="60"   y="295" class="display" font-size="92" fill="#F8FAFC">@${escapeXml(o.handle.toUpperCase()).slice(0, 20)}</text>
-  ${o.rank ? `<text x="60" y="365" class="label" font-size="22" fill="#facc15" letter-spacing="0.25em">RANK #${o.rank} · ALL TIME</text>` : ''}
+  ${avatarBlock}
+  <text x="${handleX}" y="295" class="display" font-size="${o.avatar ? 76 : 92}" fill="#F8FAFC">@${escapeXml(o.handle.toUpperCase()).slice(0, 20)}</text>
+  ${o.rank ? `<text x="${handleX}" y="350" class="label" font-size="22" fill="#facc15" letter-spacing="0.25em">RANK #${o.rank} · ALL TIME</text>` : ''}
 
   <rect x="60" y="420" width="1080" height="2" fill="#facc15" opacity="0.4"/>
 

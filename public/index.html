@@ -557,6 +557,13 @@ tailwind.config = {
     <p class="text-[10px] text-on-surface-variant/70">Mondays at 9am Pacific: this week's burn vs. last, top models, who passed you, any trash talk you got.</p>
   </div>
 
+  <!-- Rotate agent token -->
+  <div class="space-y-2 pt-2 border-t border-outline-variant/20">
+    <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">Agent token</label>
+    <p class="text-[11px] text-on-surface-variant/80">If you accidentally shared your token (in a screenshot, screen-share, or repo), rotate it. The old token stops working immediately and you'll need to re-login each agent / SDK with the new one.</p>
+    <button id="settings-rotate-token" class="text-[10px] font-headline font-bold uppercase tracking-widest text-error border border-error/40 px-3 py-1.5 hover:bg-error/10">Rotate token</button>
+  </div>
+
   <div class="flex items-center justify-end gap-3 pt-2">
     <span id="settings-status" class="text-xs font-data text-on-surface-variant"></span>
     <button id="settings-clear" class="text-xs font-headline font-bold uppercase tracking-widest text-on-surface-variant hover:text-on-surface">Clear (use GitHub name)</button>
@@ -1146,7 +1153,9 @@ function renderLanding() {
   // hero blank in that race.
   const rows = state.all_time || [];
   const total = rows.reduce((s, r) => s + (Number(r.total) || 0), 0);
-  document.getElementById('hero-throughput').textContent = total ? fmt.format(total) : '0';
+  // Animate the hero number from its current value to the new total — gives
+  // the landing page a "live ticker" feel even at the 3s poll cadence.
+  animateNumber(document.getElementById('hero-throughput'), total || 0);
   document.getElementById('hero-combatants').textContent = fmt.format(rows.length);
   document.getElementById('hero-events-min').textContent = eventsThisMinute || '0';
   document.getElementById('hero-live-pill').textContent = eventsThisMinute ? 'LIVE NOW' : 'STANDBY';
@@ -1590,6 +1599,29 @@ Two devs enter. One leaderboard leaves.`;
   });
 })();
 
+// Animated count-up between two numbers. ~700ms ease-out; safe for any
+// numeric DOM element. Skips animation if the delta is 0 or motion is reduced.
+function animateNumber(el, to) {
+  if (!el) return;
+  const from = Number(String(el.dataset.cur || el.textContent || '0').replace(/[^0-9.\-]/g, '')) || 0;
+  if (from === to || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+    el.textContent = fmt.format(to);
+    el.dataset.cur = String(to);
+    return;
+  }
+  const start = performance.now();
+  const dur = 700;
+  function tick(now) {
+    const t = Math.min(1, (now - start) / dur);
+    const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
+    const v = Math.round(from + (to - from) * eased);
+    el.textContent = fmt.format(v);
+    if (t < 1) requestAnimationFrame(tick);
+    else el.dataset.cur = String(to);
+  }
+  requestAnimationFrame(tick);
+}
+
 // Identicon: a deterministic 5×5 mirrored block pattern from a string seed.
 // Used for anonymized users so their GitHub avatar never leaks identity.
 function identiconDataUrl(seed) {
@@ -1681,6 +1713,28 @@ function avatarFor(row) {
     }
   }
   saveBtn.addEventListener('click', () => save(nameEl.value.trim() || null));
+  document.getElementById('settings-rotate-token')?.addEventListener('click', async () => {
+    if (!confirm('Rotate your agent token? Every running agent / SDK will stop reporting until you log them in with the new token.')) return;
+    statusEl.classList.remove('text-red-400');
+    statusEl.textContent = 'rotating…';
+    try {
+      const r = await fetch('/api/me', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ rotate_token: true }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'failed');
+      statusEl.textContent = '✓ rotated';
+      // Surface the new token AND refresh the install-cards in the dashboard
+      try { await navigator.clipboard.writeText(j.agent_token); } catch {}
+      alert('New agent token (also copied to clipboard):\n\n' + j.agent_token + '\n\nUpdate every running agent:\n  tokendome login ' + j.agent_token + ' ' + location.origin);
+      await fetchMe();
+    } catch (e) {
+      statusEl.classList.add('text-red-400');
+      statusEl.textContent = '✘ ' + (e.message || 'failed');
+    }
+  });
   clearBtn.addEventListener('click', () => { nameEl.value = ''; save(null); });
   nameEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(nameEl.value.trim() || null); });
   document.addEventListener('keydown', (e) => {

@@ -586,6 +586,7 @@ tailwind.config = {
   <div class="flex gap-1 border-b border-outline-variant/20">
     <button data-bf-provider="anthropic" class="bf-prov-btn px-3 py-2 text-xs font-headline font-bold uppercase tracking-widest border-b-2 border-primary-container text-primary-container">Anthropic</button>
     <button data-bf-provider="openai" class="bf-prov-btn px-3 py-2 text-xs font-headline font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant">OpenAI</button>
+    <button data-bf-provider="csv" class="bf-prov-btn px-3 py-2 text-xs font-headline font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant">CSV paste</button>
   </div>
 
   <div data-bf-help="anthropic" class="space-y-3 text-sm text-on-surface-variant">
@@ -596,9 +597,26 @@ tailwind.config = {
     <p>Pulls daily token usage from the <a href="https://platform.openai.com/docs/api-reference/usage" target="_blank" class="text-primary-container hover:underline">OpenAI Usage API</a> for your organization, broken down by model.</p>
     <p class="text-xs">Get a key at <span class="text-on-surface">platform.openai.com → Settings → Admin keys → Create</span>. Must have org-admin scope.</p>
   </div>
+  <div data-bf-help="csv" class="space-y-3 text-sm text-on-surface-variant hidden">
+    <p>Paste a CSV exported from any provider's billing dashboard. Forgivingly column-mapped — needs a date column, an input-tokens column, and an output-tokens column. Optional: model, cache_read, cache_write.</p>
+    <p class="text-xs">Anthropic: console.anthropic.com → Billing → Usage → Export. OpenAI: platform.openai.com → Usage → Export. Or hand-roll one.</p>
+    <div class="space-y-1">
+      <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">Provider tag for these rows</label>
+      <select id="bf-csv-provider" class="w-full bg-surface-container-lowest border border-outline-variant/30 px-3 py-2 font-data text-xs text-on-surface focus:outline-none focus:border-primary-container/60">
+        <option value="anthropic">anthropic</option>
+        <option value="openai">openai</option>
+        <option value="google">google</option>
+        <option value="ollama">ollama</option>
+      </select>
+    </div>
+    <div class="space-y-1">
+      <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">CSV (paste here)</label>
+      <textarea id="bf-csv-text" rows="8" placeholder="date,model,input_tokens,output_tokens&#10;2026-04-01,claude-3-5-sonnet,1234,567" class="w-full bg-surface-container-lowest border border-outline-variant/30 px-3 py-2 font-data text-[11px] text-on-surface focus:outline-none focus:border-primary-container/60 resize-y"></textarea>
+    </div>
+  </div>
   <p class="text-[11px] bg-surface-container-highest border border-outline-variant/30 p-2 rounded"><span class="text-primary-container">⚠</span> The key is used once for this request and never stored. Re-running this import overwrites the previous backfill for that provider (no double-counting).</p>
 
-  <div class="space-y-2">
+  <div id="bf-key-row" class="space-y-2">
     <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">Admin key</label>
     <input id="backfill-key" type="password" autocomplete="off" placeholder="sk-ant-admin01-…" class="w-full bg-surface-container-lowest border border-outline-variant/30 px-3 py-2 font-data text-xs text-on-surface focus:outline-none focus:border-primary-container/60" />
   </div>
@@ -998,13 +1016,22 @@ async function fetchDomes() {
     const list = document.getElementById('dome-menu-list');
     list.innerHTML = '';
     for (const d of domesIBelongTo) {
+      const wrap = document.createElement('div');
+      wrap.className = 'flex items-stretch';
       const b = document.createElement('button');
-      b.className = 'dome-menu-item w-full text-left px-3 py-2 text-xs font-headline font-bold uppercase tracking-widest hover:bg-primary-container/10 flex items-center justify-between gap-2';
+      b.className = 'dome-menu-item flex-1 text-left px-3 py-2 text-xs font-headline font-bold uppercase tracking-widest hover:bg-primary-container/10 flex items-center justify-between gap-2';
       b.dataset.domePick = d.slug;
-      const subtitle = d.invite_code ? '<span class="text-[10px] font-data text-on-surface-variant">code: ' + d.invite_code + '</span>' : '<span class="text-[10px] font-data text-on-surface-variant">' + d.member_count + '</span>';
+      const subtitle = d.invite_code ? '<span class="text-[10px] font-data text-on-surface-variant normal-case">code ' + d.invite_code + '</span>' : '<span class="text-[10px] font-data text-on-surface-variant">' + d.member_count + '</span>';
       b.innerHTML = '<span class="flex items-center gap-2"><span class="material-symbols-outlined text-sm">groups</span><span>' + esc(d.name) + '</span></span>' + subtitle;
       b.addEventListener('click', () => { setDomeScope(d.slug); document.getElementById('dome-menu').classList.add('hidden'); });
-      list.appendChild(b);
+      wrap.appendChild(b);
+      const mgr = document.createElement('button');
+      mgr.title = 'Manage';
+      mgr.className = 'px-2 text-on-surface-variant hover:text-primary-container';
+      mgr.innerHTML = '<span class="material-symbols-outlined text-sm">more_horiz</span>';
+      mgr.addEventListener('click', (e) => { e.stopPropagation(); manageDome(d); });
+      wrap.appendChild(mgr);
+      list.appendChild(wrap);
     }
     renderDomeSwitcher();
   } catch {}
@@ -1435,6 +1462,58 @@ document.getElementById('drawer-share')?.addEventListener('click', async () => {
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeProfile(); });
 
+// Dome management — owner can rename / rotate invite / delete; member can leave.
+async function manageDome(d) {
+  document.getElementById('dome-menu').classList.add('hidden');
+  const isOwner = !!d.invite_code; // owners get the code in /api/domes
+  const choices = isOwner
+    ? '1) Rename · 2) Rotate invite code · 3) Copy invite URL · 4) Delete dome'
+    : '1) Copy invite URL · 2) Leave dome';
+  const pick = prompt('Manage "' + d.name + '"\n' + choices + '\n\nEnter a number:');
+  if (!pick) return;
+  const inviteUrl = location.origin + '/?dome=' + encodeURIComponent(d.slug) + (d.invite_code ? '&invite=' + d.invite_code : '');
+  if (isOwner) {
+    if (pick === '1') {
+      const name = prompt('New name:', d.name);
+      if (!name || !name.trim()) return;
+      const r = await fetch('/api/domes/' + encodeURIComponent(d.slug), { method: 'PATCH', headers: {'content-type':'application/json'}, body: JSON.stringify({ name: name.trim() }) });
+      const j = await r.json();
+      if (!r.ok) return alert(j.error || 'failed');
+      await fetchDomes();
+    } else if (pick === '2') {
+      if (!confirm('Rotate the invite code? The old one stops working immediately.')) return;
+      const r = await fetch('/api/domes/' + encodeURIComponent(d.slug), { method: 'PATCH', headers: {'content-type':'application/json'}, body: JSON.stringify({ rotate_invite: true }) });
+      const j = await r.json();
+      if (!r.ok) return alert(j.error || 'failed');
+      try { await navigator.clipboard.writeText(location.origin + '/?dome=' + encodeURIComponent(d.slug) + '&invite=' + j.invite_code); } catch {}
+      alert('New code: ' + j.invite_code + '\n(invite URL copied to clipboard)');
+      await fetchDomes();
+    } else if (pick === '3') {
+      try { await navigator.clipboard.writeText(inviteUrl); alert('Invite URL copied:\n' + inviteUrl); }
+      catch { prompt('Copy this URL:', inviteUrl); }
+    } else if (pick === '4') {
+      if (!confirm('Permanently delete "' + d.name + '"? Members will be removed.')) return;
+      const r = await fetch('/api/domes/' + encodeURIComponent(d.slug), { method: 'DELETE' });
+      const j = await r.json();
+      if (!r.ok) return alert(j.error || 'failed');
+      if (domeScope === d.slug) setDomeScope('');
+      await fetchDomes();
+    }
+  } else {
+    if (pick === '1') {
+      try { await navigator.clipboard.writeText(inviteUrl); alert('Invite URL copied:\n' + inviteUrl); }
+      catch { prompt('Copy this URL:', inviteUrl); }
+    } else if (pick === '2') {
+      if (!confirm('Leave "' + d.name + '"?')) return;
+      const r = await fetch('/api/domes/' + encodeURIComponent(d.slug) + '?leave=1', { method: 'DELETE' });
+      const j = await r.json();
+      if (!r.ok) return alert(j.error || 'failed');
+      if (domeScope === d.slug) setDomeScope('');
+      await fetchDomes();
+    }
+  }
+}
+
 // Dome switcher dropdown + create/join handlers
 (() => {
   const btn = document.getElementById('dome-switcher');
@@ -1584,8 +1663,9 @@ function avatarFor(row) {
   let days = 90;
   let provider = 'anthropic';
   const PROV_META = {
-    anthropic: { label: 'Anthropic', placeholder: 'sk-ant-admin01-…', prefix: 'sk-ant-admin01-', endpoint: '/api/import/anthropic' },
-    openai:    { label: 'OpenAI',    placeholder: 'sk-…',             prefix: 'sk-',              endpoint: '/api/import/openai' },
+    anthropic: { label: 'Anthropic', placeholder: 'sk-ant-admin01-…', prefix: 'sk-ant-admin01-', endpoint: '/api/import/anthropic', csv: false },
+    openai:    { label: 'OpenAI',    placeholder: 'sk-…',             prefix: 'sk-',              endpoint: '/api/import/openai',    csv: false },
+    csv:       { label: 'CSV',       placeholder: '',                  prefix: '',                 endpoint: '/api/import/csv',       csv: true  },
   };
   function setProvider(p) {
     provider = p;
@@ -1598,6 +1678,8 @@ function avatarFor(row) {
     document.querySelectorAll('[data-bf-help]').forEach(el => {
       el.classList.toggle('hidden', el.dataset.bfHelp !== p);
     });
+    // Hide the admin-key row when CSV is selected (no key needed)
+    document.getElementById('bf-key-row')?.classList.toggle('hidden', !!meta.csv);
     provBtns.forEach(b => {
       const on = b.dataset.bfProvider === p;
       b.classList.toggle('border-primary-container', on);
@@ -1630,26 +1712,39 @@ function avatarFor(row) {
   }));
   runBtn.addEventListener('click', async () => {
     const meta = PROV_META[provider];
-    const key = keyEl.value.trim();
-    if (!key.startsWith(meta.prefix)) {
-      statusEl.textContent = 'Need an admin key (' + meta.placeholder + ')';
-      statusEl.classList.add('text-red-400');
-      return;
+    let body;
+    if (meta.csv) {
+      const csv = document.getElementById('bf-csv-text').value.trim();
+      const csvProv = document.getElementById('bf-csv-provider').value;
+      if (!csv) { statusEl.textContent = 'Paste a CSV first'; statusEl.classList.add('text-red-400'); return; }
+      body = JSON.stringify({ csv, provider: csvProv });
+    } else {
+      const key = keyEl.value.trim();
+      if (!key.startsWith(meta.prefix)) {
+        statusEl.textContent = 'Need an admin key (' + meta.placeholder + ')';
+        statusEl.classList.add('text-red-400');
+        return;
+      }
+      body = JSON.stringify({ admin_key: key, days });
     }
     statusEl.classList.remove('text-red-400');
     runBtn.disabled = true;
-    statusEl.textContent = 'Calling ' + meta.label + ' Admin API…';
+    statusEl.textContent = meta.csv ? 'Parsing CSV…' : ('Calling ' + meta.label + ' Admin API…');
     try {
       const r = await fetch(meta.endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ admin_key: key, days }),
+        body,
       });
       const j = await r.json();
-      if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+      if (!r.ok) {
+        const detail = j.headers_seen ? ' (saw: ' + j.headers_seen.join(', ') + ')' : '';
+        throw new Error((j.error || ('HTTP ' + r.status)) + detail);
+      }
       statusEl.classList.remove('text-red-400');
       statusEl.textContent = `✓ ${fmt.format(j.rows_imported)} rows · ${fmtCompact.format(j.totals.input + j.totals.output)} tok · $${(j.totals.cost_cents / 100).toFixed(2)}`;
       keyEl.value = '';
+      if (meta.csv) document.getElementById('bf-csv-text').value = '';
       await fetchBoard();
       setTimeout(() => show(false), 2000);
     } catch (e) {

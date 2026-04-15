@@ -23,6 +23,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as crypto from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { URL } from 'node:url';
 // ─── Config ────────────────────────────────────────────────────────────────
 const CONFIG_DIR = path.join(os.homedir(), '.tokendome');
@@ -38,14 +39,24 @@ function defaultConfig() {
             openai: { base: 'https://api.openai.com' },
             anthropic: { base: 'https://api.anthropic.com' },
             google: { base: 'https://generativelanguage.googleapis.com' },
-            ollama: { base: 'http://localhost:11434' },
+            ollama: { base: 'http://localhost:11434', is_local: true },
         },
     };
 }
 function loadConfig() {
     if (!fs.existsSync(CONFIG_FILE))
         return defaultConfig();
-    return { ...defaultConfig(), ...JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) };
+    const def = defaultConfig();
+    const saved = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+    // Shallow merge top-level + per-upstream merge so defaults like
+    // `ollama.is_local: true` survive even if the saved file predates the field.
+    const merged = { ...def, ...saved, upstreams: { ...def.upstreams } };
+    if (saved.upstreams) {
+        for (const k of Object.keys(saved.upstreams)) {
+            merged.upstreams[k] = { ...def.upstreams[k], ...saved.upstreams[k] };
+        }
+    }
+    return merged;
 }
 function saveConfig(c) {
     fs.mkdirSync(CONFIG_DIR, { recursive: true });
@@ -149,19 +160,20 @@ async function report(cfg, events) {
         throw new Error(`${res.status} ${await res.text()}`);
 }
 function route(cfg, method, urlPath, body) {
-    // Anthropic native messages API
+    // Pick is_local from the user's per-upstream config — defaults match reality
+    // (only `ollama` is local out of the box) but can be overridden so e.g.
+    // pointing `openai` at a local vLLM/llama.cpp/MLX server gets correctly
+    // tagged as local compute.
+    const localFor = (name) => cfg.upstreams[name].is_local ?? (name === 'ollama');
     if (urlPath.startsWith('/v1/messages') || urlPath === '/v1/complete') {
-        return { provider: 'anthropic', base: cfg.upstreams.anthropic.base, is_local: false, extractor: extractAnthropic };
+        return { provider: 'anthropic', base: cfg.upstreams.anthropic.base, is_local: localFor('anthropic'), extractor: extractAnthropic };
     }
-    // Ollama native
     if (urlPath.startsWith('/api/generate') || urlPath.startsWith('/api/chat') || urlPath.startsWith('/api/embed')) {
-        return { provider: 'ollama', base: cfg.upstreams.ollama.base, is_local: true, extractor: extractOllamaNative };
+        return { provider: 'ollama', base: cfg.upstreams.ollama.base, is_local: localFor('ollama'), extractor: extractOllamaNative };
     }
-    // Google Gemini
     if (urlPath.startsWith('/v1beta/')) {
-        return { provider: 'google', base: cfg.upstreams.google.base, is_local: false, extractor: extractGoogle };
+        return { provider: 'google', base: cfg.upstreams.google.base, is_local: localFor('google'), extractor: extractGoogle };
     }
-    // OpenAI-compat. Peek at the model in the body to decide.
     if (urlPath.startsWith('/v1/')) {
         let model = '';
         if (body.length) {
@@ -171,17 +183,15 @@ function route(cfg, method, urlPath, body) {
             catch { }
         }
         if (model.startsWith('claude-')) {
-            // anthropic exposes /v1/chat/completions — same path works
-            return { provider: 'anthropic', base: cfg.upstreams.anthropic.base, is_local: false, extractor: extractOpenAI };
+            return { provider: 'anthropic', base: cfg.upstreams.anthropic.base, is_local: localFor('anthropic'), extractor: extractOpenAI };
         }
         if (model.startsWith('gemini-')) {
-            return { provider: 'google', base: cfg.upstreams.google.base, is_local: false, extractor: extractOpenAI };
+            return { provider: 'google', base: cfg.upstreams.google.base, is_local: localFor('google'), extractor: extractOpenAI };
         }
         if (model.startsWith('ollama/')) {
-            // rewrite model to strip prefix — but we can only mutate the body (easy enough)
-            return { provider: 'ollama', base: cfg.upstreams.ollama.base, is_local: true, extractor: extractOpenAI };
+            return { provider: 'ollama', base: cfg.upstreams.ollama.base, is_local: localFor('ollama'), extractor: extractOpenAI };
         }
-        return { provider: 'openai', base: cfg.upstreams.openai.base, is_local: false, extractor: extractOpenAI };
+        return { provider: 'openai', base: cfg.upstreams.openai.base, is_local: localFor('openai'), extractor: extractOpenAI };
     }
     return null;
 }
@@ -526,18 +536,165 @@ function status() {
     console.log('user_id: ', cfg.user_id || '(not logged in)');
     console.log('port:    ', cfg.port);
     console.log('upstreams:');
-    for (const [k, v] of Object.entries(cfg.upstreams))
-        console.log(`  ${k}: ${v.base}`);
+    for (const [k, v] of Object.entries(cfg.upstreams)) {
+        const localTag = v.is_local ? ' 🏠 local' : '';
+        console.log(`  ${k}: ${v.base}${localTag}`);
+    }
 }
 function help() {
     console.log(`tokendome — local token telemetry agent
 
   tokendome login <token> [server_url]   save your credentials
-  tokendome start                        run the proxy
+  tokendome start                        run the proxy (foreground)
   tokendome status                       show config
   tokendome set <key> <value>            e.g. tokendome set upstreams.ollama.base http://192.168.1.5:11434
+                                         e.g. tokendome set upstreams.openai.is_local true   (mark a self-hosted OpenAI-compat server as local)
+  tokendome service install              install as a launchd/systemd user service so the proxy starts on login
+  tokendome service uninstall            remove the user service
+  tokendome service status               show whether the user service is loaded
   tokendome help
 `);
+}
+// ─── Service install (launchd on macOS, systemd --user on Linux) ────────────
+const SERVICE_LABEL = 'com.tokendome.agent';
+function platformService() {
+    if (process.platform === 'darwin')
+        return 'launchd';
+    if (process.platform === 'linux')
+        return 'systemd';
+    return null;
+}
+function execv(cmd, args) {
+    const r = spawnSync(cmd, args, { encoding: 'utf8' });
+    return { code: r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
+}
+function serviceInstall() {
+    const platform = platformService();
+    const node = process.execPath;
+    const script = path.join(CONFIG_DIR, 'tokendome.js');
+    if (!fs.existsSync(script)) {
+        console.error('✘ Expected', script, 'to exist (the install script puts it there).');
+        console.error('  Run the one-line installer first:  curl -fsSL <server>/install.sh | bash');
+        process.exit(1);
+    }
+    if (platform === 'launchd') {
+        const plistPath = path.join(os.homedir(), 'Library/LaunchAgents', `${SERVICE_LABEL}.plist`);
+        const logDir = path.join(CONFIG_DIR, 'logs');
+        fs.mkdirSync(logDir, { recursive: true });
+        const plist = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>${SERVICE_LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${node}</string>
+    <string>${script}</string>
+    <string>start</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>${path.join(logDir, 'agent.out.log')}</string>
+  <key>StandardErrorPath</key><string>${path.join(logDir, 'agent.err.log')}</string>
+  <key>WorkingDirectory</key><string>${CONFIG_DIR}</string>
+</dict>
+</plist>
+`;
+        fs.mkdirSync(path.dirname(plistPath), { recursive: true });
+        fs.writeFileSync(plistPath, plist);
+        // bootout if previously loaded, then bootstrap
+        const uid = process.getuid?.() ?? 0;
+        execv('launchctl', ['bootout', `gui/${uid}`, plistPath]); // ignore failure (not loaded)
+        const r = execv('launchctl', ['bootstrap', `gui/${uid}`, plistPath]);
+        if (r.code !== 0) {
+            console.error('✘ launchctl bootstrap failed:', r.stderr.trim() || r.stdout.trim());
+            process.exit(1);
+        }
+        console.log('✓ Installed launchd service:', plistPath);
+        console.log('  Logs:', logDir);
+        console.log('  The agent now starts automatically on every login.');
+        return;
+    }
+    if (platform === 'systemd') {
+        const unitDir = path.join(os.homedir(), '.config/systemd/user');
+        const unitPath = path.join(unitDir, 'tokendome.service');
+        fs.mkdirSync(unitDir, { recursive: true });
+        const unit = `[Unit]
+Description=THE TOKENDOME local proxy agent
+After=network-online.target
+
+[Service]
+ExecStart=${node} ${script} start
+Restart=always
+RestartSec=5
+WorkingDirectory=${CONFIG_DIR}
+StandardOutput=append:${path.join(CONFIG_DIR, 'logs', 'agent.out.log')}
+StandardError=append:${path.join(CONFIG_DIR, 'logs', 'agent.err.log')}
+
+[Install]
+WantedBy=default.target
+`;
+        fs.mkdirSync(path.join(CONFIG_DIR, 'logs'), { recursive: true });
+        fs.writeFileSync(unitPath, unit);
+        execv('systemctl', ['--user', 'daemon-reload']);
+        const r = execv('systemctl', ['--user', 'enable', '--now', 'tokendome.service']);
+        if (r.code !== 0) {
+            console.error('✘ systemctl --user enable failed:', r.stderr.trim() || r.stdout.trim());
+            console.error('  Tip: ensure user lingering is enabled if you want it to run without an active login:');
+            console.error('       sudo loginctl enable-linger', os.userInfo().username);
+            process.exit(1);
+        }
+        console.log('✓ Installed systemd user service:', unitPath);
+        console.log('  Logs:', path.join(CONFIG_DIR, 'logs'));
+        return;
+    }
+    console.error('✘ tokendome service: only macOS (launchd) and Linux (systemd --user) are supported.');
+    process.exit(1);
+}
+function serviceUninstall() {
+    const platform = platformService();
+    if (platform === 'launchd') {
+        const plistPath = path.join(os.homedir(), 'Library/LaunchAgents', `${SERVICE_LABEL}.plist`);
+        const uid = process.getuid?.() ?? 0;
+        execv('launchctl', ['bootout', `gui/${uid}`, plistPath]);
+        if (fs.existsSync(plistPath))
+            fs.unlinkSync(plistPath);
+        console.log('✓ Uninstalled launchd service.');
+        return;
+    }
+    if (platform === 'systemd') {
+        execv('systemctl', ['--user', 'disable', '--now', 'tokendome.service']);
+        const unitPath = path.join(os.homedir(), '.config/systemd/user/tokendome.service');
+        if (fs.existsSync(unitPath))
+            fs.unlinkSync(unitPath);
+        execv('systemctl', ['--user', 'daemon-reload']);
+        console.log('✓ Uninstalled systemd user service.');
+        return;
+    }
+    console.error('✘ tokendome service: only macOS and Linux supported.');
+    process.exit(1);
+}
+function serviceStatus() {
+    const platform = platformService();
+    if (platform === 'launchd') {
+        const uid = process.getuid?.() ?? 0;
+        const r = execv('launchctl', ['print', `gui/${uid}/${SERVICE_LABEL}`]);
+        if (r.code === 0) {
+            const stateLine = r.stdout.split('\n').find(l => /\sstate\s*=/.test(l));
+            console.log(stateLine ? stateLine.trim() : 'service loaded');
+        }
+        else {
+            console.log('not installed (run: tokendome service install)');
+        }
+        return;
+    }
+    if (platform === 'systemd') {
+        const r = execv('systemctl', ['--user', 'is-active', 'tokendome.service']);
+        console.log('systemctl --user is-active tokendome.service →', (r.stdout || r.stderr).trim());
+        return;
+    }
+    console.error('✘ tokendome service: only macOS and Linux supported.');
+    process.exit(1);
 }
 function setKey(dotPath, value) {
     const cfg = loadConfig();
@@ -546,9 +703,18 @@ function setKey(dotPath, value) {
     for (let i = 0; i < parts.length - 1; i++) {
         cur = cur[parts[i]] ??= {};
     }
-    cur[parts[parts.length - 1]] = value;
+    // Coerce booleans / numbers — JSON config wants real types, not "true"
+    // strings (which would be truthy AND wrong for is_local etc.).
+    let coerced = value;
+    if (value === 'true')
+        coerced = true;
+    else if (value === 'false')
+        coerced = false;
+    else if (/^-?\d+$/.test(value))
+        coerced = Number(value);
+    cur[parts[parts.length - 1]] = coerced;
     saveConfig(cfg);
-    console.log('✓ set', dotPath, '=', value);
+    console.log('✓ set', dotPath, '=', JSON.stringify(coerced));
 }
 function main() {
     const [, , cmd, ...rest] = process.argv;
@@ -556,6 +722,17 @@ function main() {
         case 'login': return login(rest[0], rest[1]);
         case 'status': return status();
         case 'set': return setKey(rest[0], rest.slice(1).join(' '));
+        case 'service': {
+            const sub = rest[0];
+            if (sub === 'install')
+                return serviceInstall();
+            if (sub === 'uninstall')
+                return serviceUninstall();
+            if (sub === 'status')
+                return serviceStatus();
+            console.error('usage: tokendome service install|uninstall|status');
+            process.exit(1);
+        }
         case 'start': {
             const cfg = loadConfig();
             if (!cfg.agent_token) {

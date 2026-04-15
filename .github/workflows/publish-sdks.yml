@@ -1,0 +1,68 @@
+# Publish both @tokendome/* SDKs to npm when a v* tag is pushed.
+# Requires `NPM_TOKEN` repo secret (Settings → Secrets → Actions).
+#
+# Usage to release:
+#   git tag v0.2.0 && git push origin v0.2.0
+#
+# The action publishes whatever version is in each sdks/*/package.json,
+# so bump those before tagging.
+name: Publish SDKs to npm
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Which SDK(s) to publish'
+        required: true
+        default: 'both'
+        type: choice
+        options: [both, anthropic, openai]
+      dry_run:
+        description: 'Dry run (no actual publish)'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Publish @tokendome/anthropic
+        if: ${{ github.event.inputs.target == 'both' || github.event.inputs.target == 'anthropic' || github.event_name == 'push' }}
+        working-directory: sdks/anthropic
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            npm publish --access public --dry-run
+          else
+            npm publish --access public
+          fi
+
+      - name: Publish @tokendome/openai
+        if: ${{ github.event.inputs.target == 'both' || github.event.inputs.target == 'openai' || github.event_name == 'push' }}
+        working-directory: sdks/openai
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            npm publish --access public --dry-run
+          else
+            npm publish --access public
+          fi

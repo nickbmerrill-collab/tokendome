@@ -679,6 +679,59 @@ function routeCmd(args) {
     console.error('usage: tokendome route add|rm …');
     process.exit(1);
 }
+// Multi-machine config sync. `export-config` emits a base64-wrapped JSON
+// blob of the live config (including the agent token + any custom upstreams
+// and routes); `import-config <blob>` writes it on the destination box.
+//
+// The blob carries your bearer credential, so it's printed as one long
+// line that you should treat like a password — pipe to clipboard, paste
+// in a one-shot terminal on the other machine, then clear scrollback.
+function exportConfigCmd() {
+    const cfg = loadConfig();
+    if (!cfg.agent_token) {
+        console.error('✘ Not logged in — run `tokendome login` first.');
+        process.exit(1);
+    }
+    const blob = Buffer.from(JSON.stringify(cfg)).toString('base64');
+    // Print to stdout for piping; print a friendly note to stderr so it
+    // doesn't end up inside `... | pbcopy`.
+    console.error('# Pipe to clipboard:  tokendome export-config | pbcopy        (macOS)');
+    console.error('# Pipe to clipboard:  tokendome export-config | xclip -selection clipboard   (Linux)');
+    console.error('#');
+    console.error('# Then on the other machine:  tokendome import-config <paste>');
+    console.error('#');
+    console.error('# ⚠  This blob includes your agent token. Treat it like a password.');
+    console.log(blob);
+}
+function importConfigCmd(blob) {
+    if (!blob) {
+        console.error('usage: tokendome import-config <base64-blob>');
+        process.exit(1);
+    }
+    let parsed;
+    try {
+        parsed = JSON.parse(Buffer.from(blob.trim(), 'base64').toString('utf8'));
+    }
+    catch (e) {
+        console.error('✘ Could not decode blob —', e.message);
+        process.exit(1);
+    }
+    if (!parsed.agent_token || !parsed.user_id) {
+        console.error('✘ Blob is missing agent_token or user_id — was this from `tokendome export-config`?');
+        process.exit(1);
+    }
+    // Don't blindly clobber a different login on this machine — confirm.
+    const existing = loadConfig();
+    if (existing.user_id && existing.user_id !== parsed.user_id) {
+        console.error(`⚠  This machine is currently logged in as user ${existing.user_id}. Importing will switch to user ${parsed.user_id}.`);
+        console.error('   Re-run with: tokendome import-config <blob> --force   to confirm.');
+        if (!process.argv.includes('--force'))
+            process.exit(1);
+    }
+    saveConfig(parsed);
+    console.log('✓ Imported config. user_id =', parsed.user_id, '· server =', parsed.server_url);
+    console.log('  Restart the agent for upstream changes to take effect.');
+}
 // `tokendome captures` — fetch the running agent's recent-request log
 async function capturesCmd(args) {
     const { flags } = parseFlags(args);
@@ -730,6 +783,9 @@ function help() {
   tokendome capture-all install          (REQUIRES SUDO) transparent egress redirect for known LLM API hosts → localhost:4000.
                                          the "no escape" mode for services that ignore *_BASE_URL env vars.
   tokendome capture-all uninstall        revert the redirect rules
+
+  tokendome export-config                print the full config (incl. token) as a single base64 line — pipe to clipboard
+  tokendome import-config <blob>         restore on a second machine in one command
 
   tokendome help
 
@@ -1030,6 +1086,8 @@ function main() {
             console.error('usage: tokendome capture-all install|uninstall');
             process.exit(1);
         }
+        case 'export-config': return exportConfigCmd();
+        case 'import-config': return importConfigCmd(rest[0]);
         case 'start': {
             const cfg = loadConfig();
             if (!cfg.agent_token) {

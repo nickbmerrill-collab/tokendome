@@ -38,6 +38,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await db()`UPDATE users SET hidden = ${h} WHERE id = ${u.id}`;
       u.hidden = h;
     }
+    // Email subscription toggle (weekly digest). Setting email='' or null
+    // unsubscribes; setting a valid address upserts the row.
+    if ('email' in body) {
+      const raw = body.email;
+      if (!raw) {
+        await db()`DELETE FROM email_subscriptions WHERE user_id = ${u.id}`;
+      } else {
+        const email = String(raw).trim().slice(0, 200);
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          return res.status(400).json({ error: 'invalid email' });
+        }
+        await db()`
+          INSERT INTO email_subscriptions (user_id, email, weekly, created_at)
+          VALUES (${u.id}, ${email}, TRUE, ${Date.now()})
+          ON CONFLICT (user_id) DO UPDATE SET email = EXCLUDED.email, weekly = TRUE
+        `;
+      }
+    }
+  }
+
+  // Surface current subscription state in the response so the dashboard can
+  // render the toggle correctly.
+  let subscription: { email: string; weekly: boolean } | null = null;
+  if (u) {
+    const subs = await db()`SELECT email, weekly FROM email_subscriptions WHERE user_id = ${u.id}`;
+    if (subs.length > 0) subscription = subs[0] as any;
   }
 
   if (!u) return res.json({ authenticated: false });
@@ -48,6 +74,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     display_name: u.display_name || null,
     is_anonymized: !!u.display_name,
     hidden: !!u.hidden,
+    subscription,
     avatar_url: u.display_name ? null : u.avatar_url, // hide GitHub avatar when anonymized
     // "<user_id>.<secret>" — the agent splits on the dot so it knows who it is
     agent_token: `${u.id}.${u.agent_token}`,

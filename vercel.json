@@ -5,6 +5,9 @@
     { "source": "/api/import/:provider", "destination": "/api/import?p=:provider" },
     { "source": "/api/domes/:slug", "destination": "/api/domes?slug=:slug" }
   ],
+  "crons": [
+    { "path": "/api/digest", "schedule": "0 16 * * 1" }
+  ],
   "headers": [
     {
       "source": "/(.*)",

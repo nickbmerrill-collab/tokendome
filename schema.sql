@@ -52,6 +52,17 @@ CREATE TABLE IF NOT EXISTS dome_members (
 );
 CREATE INDEX IF NOT EXISTS idx_dome_members_user ON dome_members(user_id);
 
+-- Per-user email subscription for the weekly digest. Sparse — only users
+-- who opted in have a row. The /api/digest cron POSTs to Resend for every
+-- row where weekly=TRUE.
+CREATE TABLE IF NOT EXISTS email_subscriptions (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  weekly BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at BIGINT NOT NULL,
+  last_sent_at BIGINT
+);
+
 -- 140-char trash-talk messages from one combatant to another. Auto-expires
 -- after 30 minutes; rendered as a chat bubble on the target's leaderboard row.
 CREATE TABLE IF NOT EXISTS trash_talk (

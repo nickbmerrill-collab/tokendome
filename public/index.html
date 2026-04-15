@@ -550,6 +550,13 @@ tailwind.config = {
     </span>
   </label>
 
+  <!-- Weekly email digest -->
+  <div class="space-y-2 pt-2 border-t border-outline-variant/20">
+    <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">Weekly digest email <span class="font-normal normal-case text-on-surface-variant/70">— optional, leave blank to unsubscribe</span></label>
+    <input id="settings-email" type="email" placeholder="you@example.com" autocomplete="email" class="w-full bg-surface-container-lowest border border-outline-variant/30 px-3 py-2 font-data text-xs text-on-surface focus:outline-none focus:border-primary-container/60" />
+    <p class="text-[10px] text-on-surface-variant/70">Mondays at 9am Pacific: this week's burn vs. last, top models, who passed you, any trash talk you got.</p>
+  </div>
+
   <div class="flex items-center justify-end gap-3 pt-2">
     <span id="settings-status" class="text-xs font-data text-on-surface-variant"></span>
     <button id="settings-clear" class="text-xs font-headline font-bold uppercase tracking-widest text-on-surface-variant hover:text-on-surface">Clear (use GitHub name)</button>
@@ -1632,6 +1639,7 @@ function avatarFor(row) {
         if (!m.authenticated) return;
         nameEl.value = m.display_name || '';
         document.getElementById('settings-hidden').checked = !!m.hidden;
+        document.getElementById('settings-email').value = m.subscription?.email || '';
         currentEl.textContent = m.hidden
           ? '👻 Ghost mode ON — you are not visible anywhere publicly.'
           : (m.is_anonymized
@@ -1651,11 +1659,12 @@ function avatarFor(row) {
     statusEl.classList.remove('text-red-400');
     statusEl.textContent = 'saving…';
     const hidden = !!document.getElementById('settings-hidden').checked;
+    const email = document.getElementById('settings-email').value.trim();
     try {
       const r = await fetch('/api/me', {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ display_name: displayName, hidden }),
+        body: JSON.stringify({ display_name: displayName, hidden, email: email || null }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'failed');

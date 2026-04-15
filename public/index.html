@@ -343,90 +343,78 @@ tailwind.config = {
         </div>
       </div>
 
-      <!-- Path: Anthropic SDK -->
-      <div data-setup-panel="anthropic" class="space-y-4">
-        <p class="text-xs text-on-surface-variant">Drop-in replacement for <code class="text-primary">@anthropic-ai/sdk</code>. Change one import. Your prompts never leave your process.</p>
-        <div class="space-y-2">
-          <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">1 — Install</label>
-          <div class="bg-surface-container-lowest p-3 flex justify-between items-center group">
-            <code id="sdk-install-cmd" class="font-data text-xs text-primary">npm i …/tokendome-anthropic.tgz</code>
-            <button data-copy="sdk-install-cmd" class="copy-btn text-primary-container opacity-50 group-hover:opacity-100"><span class="material-symbols-outlined text-sm">content_copy</span></button>
+      <!-- Path: Anthropic SDK ─── one-liner install + 1 import edit -->
+      <div data-setup-panel="anthropic" class="space-y-3">
+        <p class="text-xs text-on-surface-variant">Drop-in replacement for <code class="text-primary">@anthropic-ai/sdk</code>. <span class="text-on-surface">Two lines.</span></p>
+        <div class="space-y-1.5">
+          <div class="flex items-center justify-between text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">
+            <span>1 — Install (token baked in)</span>
+            <button data-copy="sdk-install-cmd" class="copy-btn flex items-center gap-1 text-secondary hover:text-on-surface text-[10px] uppercase">
+              <span class="material-symbols-outlined text-xs">content_copy</span><span>copy</span>
+            </button>
           </div>
+          <pre class="bg-surface-container-lowest p-3 overflow-x-auto"><code id="sdk-install-cmd" class="font-data text-xs text-primary whitespace-pre">npm i …/tokendome-anthropic.tgz</code></pre>
         </div>
-        <div class="space-y-2">
-          <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">2 — Set token</label>
-          <div class="bg-surface-container-lowest p-3 flex justify-between items-center group">
-            <code id="sdk-env" class="font-data text-xs text-primary break-all">export TOKENDOME_TOKEN=—</code>
-            <button data-copy="sdk-env" class="copy-btn text-primary-container opacity-50 group-hover:opacity-100"><span class="material-symbols-outlined text-sm">content_copy</span></button>
+        <div class="space-y-1.5">
+          <div class="flex items-center justify-between text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">
+            <span>2 — Change this one line in your code</span>
+            <button data-copy="sdk-import" class="copy-btn flex items-center gap-1 text-secondary hover:text-on-surface text-[10px] uppercase">
+              <span class="material-symbols-outlined text-xs">content_copy</span><span>copy</span>
+            </button>
           </div>
+          <pre class="bg-surface-container-lowest p-3 overflow-x-auto"><code id="sdk-import" class="font-data text-xs text-primary">import Anthropic from '@tokendome/anthropic';</code></pre>
         </div>
-        <div class="space-y-2">
-          <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">3 — Change one import</label>
-          <div class="bg-surface-container-lowest p-3 flex justify-between items-center group">
-            <code id="sdk-import" class="font-data text-xs text-primary">import Anthropic from '@tokendome/anthropic';</code>
-            <button data-copy="sdk-import" class="copy-btn text-primary-container opacity-50 group-hover:opacity-100"><span class="material-symbols-outlined text-sm">content_copy</span></button>
-          </div>
-        </div>
+        <p class="text-[10px] text-on-surface-variant/70 font-data">your <code>x-api-key</code>, prompts, and completions never leave your process</p>
       </div>
 
       <!-- Path: OpenAI SDK -->
-      <div data-setup-panel="openai" class="space-y-4 hidden">
-        <p class="text-xs text-on-surface-variant">Drop-in replacement for <code class="text-primary">openai</code>. Change one import. Auto-enables <code class="text-primary">stream_options.include_usage</code> for streaming.</p>
-        <div class="space-y-2">
-          <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">1 — Install</label>
-          <div class="bg-surface-container-lowest p-3 flex justify-between items-center group">
-            <code id="oai-install-cmd" class="font-data text-xs text-primary">npm i …/tokendome-openai.tgz</code>
-            <button data-copy="oai-install-cmd" class="copy-btn text-primary-container opacity-50 group-hover:opacity-100"><span class="material-symbols-outlined text-sm">content_copy</span></button>
+      <div data-setup-panel="openai" class="space-y-3 hidden">
+        <p class="text-xs text-on-surface-variant">Drop-in replacement for <code class="text-primary">openai</code>. <span class="text-on-surface">Two lines.</span> Auto-enables <code class="text-primary">stream_options.include_usage</code> on streaming calls.</p>
+        <div class="space-y-1.5">
+          <div class="flex items-center justify-between text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">
+            <span>1 — Install (token baked in)</span>
+            <button data-copy="oai-install-cmd" class="copy-btn flex items-center gap-1 text-secondary hover:text-on-surface text-[10px] uppercase">
+              <span class="material-symbols-outlined text-xs">content_copy</span><span>copy</span>
+            </button>
           </div>
+          <pre class="bg-surface-container-lowest p-3 overflow-x-auto"><code id="oai-install-cmd" class="font-data text-xs text-primary whitespace-pre">npm i …/tokendome-openai.tgz</code></pre>
         </div>
-        <div class="space-y-2">
-          <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">2 — Set token</label>
-          <div class="bg-surface-container-lowest p-3 flex justify-between items-center group">
-            <code id="oai-env" class="font-data text-xs text-primary break-all">export TOKENDOME_TOKEN=—</code>
-            <button data-copy="oai-env" class="copy-btn text-primary-container opacity-50 group-hover:opacity-100"><span class="material-symbols-outlined text-sm">content_copy</span></button>
+        <div class="space-y-1.5">
+          <div class="flex items-center justify-between text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">
+            <span>2 — Change this one line in your code</span>
+            <button data-copy="oai-import" class="copy-btn flex items-center gap-1 text-secondary hover:text-on-surface text-[10px] uppercase">
+              <span class="material-symbols-outlined text-xs">content_copy</span><span>copy</span>
+            </button>
           </div>
-        </div>
-        <div class="space-y-2">
-          <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">3 — Change one import</label>
-          <div class="bg-surface-container-lowest p-3 flex justify-between items-center group">
-            <code id="oai-import" class="font-data text-xs text-primary">import OpenAI from '@tokendome/openai';</code>
-            <button data-copy="oai-import" class="copy-btn text-primary-container opacity-50 group-hover:opacity-100"><span class="material-symbols-outlined text-sm">content_copy</span></button>
-          </div>
+          <pre class="bg-surface-container-lowest p-3 overflow-x-auto"><code id="oai-import" class="font-data text-xs text-primary">import OpenAI from '@tokendome/openai';</code></pre>
         </div>
       </div>
 
-      <!-- Path B: CLI -->
-      <div data-setup-panel="cli" class="space-y-4 hidden">
-        <p class="text-xs text-on-surface-variant">Local proxy. Works for OpenAI, Anthropic, Google, Ollama — any language. Required for local models.</p>
-        <div class="space-y-2">
-          <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">1 — Install</label>
-          <div class="bg-surface-container-lowest p-3 flex justify-between items-center group">
-            <code id="install-cmd" class="font-data text-xs text-primary">curl -fsSL …/install.sh | bash</code>
-            <button data-copy="install-cmd" class="copy-btn text-primary-container opacity-50 group-hover:opacity-100"><span class="material-symbols-outlined text-sm">content_copy</span></button>
+      <!-- Path: CLI proxy ─── true one-liner -->
+      <div data-setup-panel="cli" class="space-y-3 hidden">
+        <p class="text-xs text-on-surface-variant">One line installs the agent, logs you in, and registers it as a service that auto-starts on every login. Works for any language, any provider, any local model.</p>
+        <div class="space-y-1.5">
+          <div class="flex items-center justify-between text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">
+            <span>Paste in your terminal</span>
+            <button data-copy="install-cmd" class="copy-btn flex items-center gap-1 text-secondary hover:text-on-surface text-[10px] uppercase">
+              <span class="material-symbols-outlined text-xs">content_copy</span><span>copy</span>
+            </button>
           </div>
+          <pre class="bg-surface-container-lowest p-3 overflow-x-auto"><code id="install-cmd" class="font-data text-xs text-primary whitespace-pre-wrap break-all">curl -fsSL …/install.sh | bash</code></pre>
         </div>
-        <div class="space-y-2">
-          <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">2 — Login + start</label>
-          <div class="bg-surface-container-lowest p-3 flex justify-between items-center group">
-            <code id="cli-login" class="font-data text-[10px] text-primary break-all">tokendome login &lt;token&gt; &amp;&amp; tokendome start</code>
-            <button data-copy="cli-login" class="copy-btn text-primary-container opacity-50 group-hover:opacity-100"><span class="material-symbols-outlined text-sm">content_copy</span></button>
+        <div class="text-[10px] text-on-surface-variant/70 font-data">Then point any of your services at <code class="text-on-surface-variant">localhost:4000</code>:</div>
+        <div class="grid grid-cols-1 gap-1">
+          <div class="bg-surface-container-lowest p-2 flex justify-between items-center group">
+            <code id="env-openai" class="font-data text-[10px] text-primary">export OPENAI_BASE_URL="http://localhost:4000/v1"</code>
+            <button data-copy="env-openai" class="copy-btn text-primary-container opacity-30 group-hover:opacity-100"><span class="material-symbols-outlined text-xs">content_copy</span></button>
           </div>
-        </div>
-        <div class="space-y-2">
-          <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">3 — Point your tools at localhost</label>
-          <div class="grid grid-cols-1 gap-1">
-            <div class="bg-surface-container-lowest p-2 flex justify-between items-center group">
-              <code id="env-openai" class="font-data text-[10px] text-primary">export OPENAI_BASE_URL="http://localhost:4000/v1"</code>
-              <button data-copy="env-openai" class="copy-btn text-primary-container opacity-30 group-hover:opacity-100"><span class="material-symbols-outlined text-xs">content_copy</span></button>
-            </div>
-            <div class="bg-surface-container-lowest p-2 flex justify-between items-center group">
-              <code id="env-anth" class="font-data text-[10px] text-primary">export ANTHROPIC_BASE_URL="http://localhost:4000"</code>
-              <button data-copy="env-anth" class="copy-btn text-primary-container opacity-30 group-hover:opacity-100"><span class="material-symbols-outlined text-xs">content_copy</span></button>
-            </div>
-            <div class="bg-surface-container-lowest p-2 flex justify-between items-center group">
-              <code id="env-ollama" class="font-data text-[10px] text-primary">export OLLAMA_HOST="http://localhost:4000"</code>
-              <button data-copy="env-ollama" class="copy-btn text-primary-container opacity-30 group-hover:opacity-100"><span class="material-symbols-outlined text-xs">content_copy</span></button>
-            </div>
+          <div class="bg-surface-container-lowest p-2 flex justify-between items-center group">
+            <code id="env-anth" class="font-data text-[10px] text-primary">export ANTHROPIC_BASE_URL="http://localhost:4000"</code>
+            <button data-copy="env-anth" class="copy-btn text-primary-container opacity-30 group-hover:opacity-100"><span class="material-symbols-outlined text-xs">content_copy</span></button>
+          </div>
+          <div class="bg-surface-container-lowest p-2 flex justify-between items-center group">
+            <code id="env-ollama" class="font-data text-[10px] text-primary">export OLLAMA_HOST="http://localhost:4000"</code>
+            <button data-copy="env-ollama" class="copy-btn text-primary-container opacity-30 group-hover:opacity-100"><span class="material-symbols-outlined text-xs">content_copy</span></button>
           </div>
         </div>
       </div>
@@ -1111,12 +1099,17 @@ async function fetchMe() {
       });
   }
   document.getElementById('token').textContent = m.agent_token;
-  document.getElementById('install-cmd').textContent = 'curl -fsSL ' + location.origin + '/install.sh | bash';
-  document.getElementById('sdk-install-cmd').textContent = 'npm i ' + location.origin + '/tokendome-anthropic.tgz';
-  document.getElementById('sdk-env').textContent = 'export TOKENDOME_TOKEN=' + m.agent_token;
-  document.getElementById('oai-install-cmd').textContent = 'npm i ' + location.origin + '/tokendome-openai.tgz';
-  document.getElementById('oai-env').textContent = 'export TOKENDOME_TOKEN=' + m.agent_token;
-  document.getElementById('cli-login').textContent = 'tokendome login ' + m.agent_token + ' && tokendome start';
+  // True one-liner for the CLI: install + login + register as a service that
+  // auto-starts on every login. The install.sh script reads TOKENDOME_TOKEN
+  // and TOKENDOME_SERVICE from the env it's piped into.
+  document.getElementById('install-cmd').textContent =
+    'curl -fsSL ' + location.origin + '/install.sh | TOKENDOME_TOKEN=' + m.agent_token + ' TOKENDOME_SERVICE=1 bash';
+  // SDK one-liner: npm install with the token exported in the same line so
+  // the user has zero env-var setup before their first node run.
+  document.getElementById('sdk-install-cmd').textContent =
+    'TOKENDOME_TOKEN=' + m.agent_token + ' npm i ' + location.origin + '/tokendome-anthropic.tgz';
+  document.getElementById('oai-install-cmd').textContent =
+    'TOKENDOME_TOKEN=' + m.agent_token + ' npm i ' + location.origin + '/tokendome-openai.tgz';
 }
 
 // Setup-card path tabs (data-driven across N panels)

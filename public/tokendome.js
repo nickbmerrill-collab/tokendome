@@ -732,7 +732,91 @@ function importConfigCmd(blob) {
     console.log('✓ Imported config. user_id =', parsed.user_id, '· server =', parsed.server_url);
     console.log('  Restart the agent for upstream changes to take effect.');
 }
-// `tokendome captures` — fetch the running agent's recent-request log
+// `tokendome doctor` — five health checks, each a green/red line. Designed
+// to be the first thing a user runs when "it's not working" — same kinds of
+// failures we hit while debugging the buddy onboarding earlier.
+async function doctorCmd() {
+    const cfg = loadConfig();
+    const ok = (m) => console.log('✓', m);
+    const bad = (m, hint) => { console.log('✘', m); if (hint)
+        console.log('  →', hint); };
+    // 1. Config sane
+    if (cfg.user_id && cfg.agent_token)
+        ok(`config:   logged in as user ${cfg.user_id} → ${cfg.server_url}`);
+    else
+        bad('config:   not logged in', 'tokendome login <token> ' + cfg.server_url);
+    // 2. Server reachable
+    let serverOk = false;
+    try {
+        const r = await fetch(cfg.server_url + '/api/me');
+        serverOk = r.ok || r.status === 401; // 401 means reachable but unauth
+        if (serverOk)
+            ok(`server:   reachable (${cfg.server_url})`);
+        else
+            bad(`server:   unexpected status ${r.status}`, 'check ' + cfg.server_url + ' in a browser');
+    }
+    catch (e) {
+        bad('server:   network error: ' + e.message, 'check your internet / DNS');
+    }
+    // 3. Agent listening locally
+    let agentOk = false;
+    try {
+        const r = await fetch(`http://127.0.0.1:${cfg.port}/_ta/health`);
+        agentOk = r.ok;
+        if (agentOk)
+            ok(`agent:    listening on :${cfg.port}`);
+        else
+            bad(`agent:    health endpoint returned ${r.status}`);
+    }
+    catch {
+        bad(`agent:    not running on :${cfg.port}`, 'tokendome start  (or: tokendome service install)');
+    }
+    // 4. Ingest accepts a synthetic event signed with our token
+    if (cfg.user_id && cfg.agent_token && serverOk) {
+        try {
+            const body = JSON.stringify({ events: [{ ts: Date.now(), provider: 'doctor', model: 'doctor', is_local: true, input_tokens: 1, output_tokens: 1 }] });
+            const ts = String(Date.now());
+            const bh = crypto.createHash('sha256').update(body).digest('hex');
+            const sig = crypto.createHmac('sha256', cfg.agent_token).update(`${ts}.${bh}`).digest('hex');
+            const r = await fetch(cfg.server_url + '/api/ingest', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json', 'x-ta-user': String(cfg.user_id), 'x-ta-ts': ts, 'x-ta-sig': sig },
+                body,
+            });
+            if (r.ok)
+                ok('ingest:   accepted a signed test event (1 in / 1 out, marked local)');
+            else
+                bad(`ingest:   server rejected (${r.status}) — ${(await r.text().catch(() => '')).slice(0, 120)}`, "check that your token isn't stale and your clock is in sync");
+        }
+        catch (e) {
+            bad('ingest:   ' + e.message);
+        }
+    }
+    else {
+        bad('ingest:   skipped (need login + server)');
+    }
+    // 5. Service status (best-effort)
+    if (process.platform === 'darwin' || process.platform === 'linux') {
+        const platform = process.platform === 'darwin' ? 'launchd' : 'systemd';
+        if (platform === 'launchd') {
+            const uid = process.getuid?.() ?? 0;
+            const r = execv('launchctl', ['print', `gui/${uid}/${SERVICE_LABEL}`]);
+            if (r.code === 0)
+                ok('service:  launchd unit loaded — auto-starts on every login');
+            else
+                console.log('·  service:  not installed (run: tokendome service install) — only relevant if you want auto-start');
+        }
+        else {
+            const r = execv('systemctl', ['--user', 'is-active', 'tokendome.service']);
+            if (r.code === 0)
+                ok('service:  systemd user unit active');
+            else
+                console.log('·  service:  not installed (run: tokendome service install)');
+        }
+    }
+    console.log('');
+    console.log('See last few captured calls with:  tokendome captures');
+}
 async function capturesCmd(args) {
     const { flags } = parseFlags(args);
     const limit = Number(flags.limit) || 50;
@@ -786,6 +870,8 @@ function help() {
 
   tokendome export-config                print the full config (incl. token) as a single base64 line — pipe to clipboard
   tokendome import-config <blob>         restore on a second machine in one command
+
+  tokendome doctor                       run end-to-end health checks (config, network, agent, server, ingest)
 
   tokendome help
 
@@ -1088,6 +1174,7 @@ function main() {
         }
         case 'export-config': return exportConfigCmd();
         case 'import-config': return importConfigCmd(rest[0]);
+        case 'doctor': return void doctorCmd();
         case 'start': {
             const cfg = loadConfig();
             if (!cfg.agent_token) {

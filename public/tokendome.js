@@ -41,6 +41,7 @@ function defaultConfig() {
             google: { base: 'https://generativelanguage.googleapis.com' },
             ollama: { base: 'http://localhost:11434', is_local: true },
         },
+        model_routes: [],
     };
 }
 function loadConfig() {
@@ -64,6 +65,13 @@ function saveConfig(c) {
     fs.chmodSync(CONFIG_FILE, 0o600);
 }
 const queue = [];
+const captures = [];
+const CAPTURES_MAX = 200;
+function recordCapture(c) {
+    captures.push(c);
+    if (captures.length > CAPTURES_MAX)
+        captures.splice(0, captures.length - CAPTURES_MAX);
+}
 // Approximate USD prices per 1M tokens (snapshot Apr 2026). Kept in sync with
 // lib/pricing.ts on the server. Local models are $0.
 const PRICES = {
@@ -110,6 +118,10 @@ function pushEvent(e) {
     if (!e.input_tokens && !e.output_tokens)
         return;
     queue.push(e);
+    recordCapture({
+        ts: e.ts, provider: e.provider, model: e.model,
+        in: e.input_tokens, out: e.output_tokens, is_local: e.is_local, status: 200,
+    });
     const cost = estimateCostUSD(e);
     sessionTotals.in += e.input_tokens;
     sessionTotals.out += e.output_tokens;
@@ -159,20 +171,18 @@ async function report(cfg, events) {
     if (!res.ok)
         throw new Error(`${res.status} ${await res.text()}`);
 }
+function localFor(cfg, name) {
+    return cfg.upstreams[name]?.is_local ?? (name === 'ollama');
+}
 function route(cfg, method, urlPath, body) {
-    // Pick is_local from the user's per-upstream config — defaults match reality
-    // (only `ollama` is local out of the box) but can be overridden so e.g.
-    // pointing `openai` at a local vLLM/llama.cpp/MLX server gets correctly
-    // tagged as local compute.
-    const localFor = (name) => cfg.upstreams[name].is_local ?? (name === 'ollama');
     if (urlPath.startsWith('/v1/messages') || urlPath === '/v1/complete') {
-        return { provider: 'anthropic', base: cfg.upstreams.anthropic.base, is_local: localFor('anthropic'), extractor: extractAnthropic };
+        return { provider: 'anthropic', base: cfg.upstreams.anthropic.base, is_local: localFor(cfg, 'anthropic'), extractor: extractAnthropic };
     }
     if (urlPath.startsWith('/api/generate') || urlPath.startsWith('/api/chat') || urlPath.startsWith('/api/embed')) {
-        return { provider: 'ollama', base: cfg.upstreams.ollama.base, is_local: localFor('ollama'), extractor: extractOllamaNative };
+        return { provider: 'ollama', base: cfg.upstreams.ollama.base, is_local: localFor(cfg, 'ollama'), extractor: extractOllamaNative };
     }
     if (urlPath.startsWith('/v1beta/')) {
-        return { provider: 'google', base: cfg.upstreams.google.base, is_local: localFor('google'), extractor: extractGoogle };
+        return { provider: 'google', base: cfg.upstreams.google.base, is_local: localFor(cfg, 'google'), extractor: extractGoogle };
     }
     if (urlPath.startsWith('/v1/')) {
         let model = '';
@@ -182,16 +192,32 @@ function route(cfg, method, urlPath, body) {
             }
             catch { }
         }
+        // 1. User-defined model-prefix routes (let "local/llama3-70b" go to a
+        //    self-hosted server while plain "gpt-4o" still hits cloud OpenAI).
+        for (const r of cfg.model_routes || []) {
+            if (r.prefix && model.startsWith(r.prefix)) {
+                const up = cfg.upstreams[r.upstream];
+                if (up?.base) {
+                    return {
+                        provider: r.upstream, base: up.base,
+                        is_local: localFor(cfg, r.upstream),
+                        extractor: extractOpenAI,
+                        strip_model_prefix: r.strip === false ? undefined : r.prefix,
+                    };
+                }
+            }
+        }
+        // 2. Built-in heuristics
         if (model.startsWith('claude-')) {
-            return { provider: 'anthropic', base: cfg.upstreams.anthropic.base, is_local: localFor('anthropic'), extractor: extractOpenAI };
+            return { provider: 'anthropic', base: cfg.upstreams.anthropic.base, is_local: localFor(cfg, 'anthropic'), extractor: extractOpenAI };
         }
         if (model.startsWith('gemini-')) {
-            return { provider: 'google', base: cfg.upstreams.google.base, is_local: localFor('google'), extractor: extractOpenAI };
+            return { provider: 'google', base: cfg.upstreams.google.base, is_local: localFor(cfg, 'google'), extractor: extractOpenAI };
         }
         if (model.startsWith('ollama/')) {
-            return { provider: 'ollama', base: cfg.upstreams.ollama.base, is_local: localFor('ollama'), extractor: extractOpenAI };
+            return { provider: 'ollama', base: cfg.upstreams.ollama.base, is_local: localFor(cfg, 'ollama'), extractor: extractOpenAI };
         }
-        return { provider: 'openai', base: cfg.upstreams.openai.base, is_local: localFor('openai'), extractor: extractOpenAI };
+        return { provider: 'openai', base: cfg.upstreams.openai.base, is_local: localFor(cfg, 'openai'), extractor: extractOpenAI };
     }
     return null;
 }
@@ -395,6 +421,14 @@ function handleRequest(cfg, req, res, body) {
         res.end('ok');
         return;
     }
+    if (urlPath.startsWith('/_ta/captures')) {
+        const u = new URL('http://x' + urlPath);
+        const limit = Math.max(1, Math.min(CAPTURES_MAX, Number(u.searchParams.get('limit')) || 50));
+        const slice = captures.slice(-limit).reverse(); // newest first
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ captures: slice }));
+        return;
+    }
     const r = route(cfg, req.method || 'GET', urlPath, body);
     if (!r) {
         res.writeHead(404, { 'content-type': 'text/plain' });
@@ -404,12 +438,16 @@ function handleRequest(cfg, req, res, body) {
     // Construct upstream URL
     let finalPath = urlPath;
     let finalBody = body;
-    // If user sent "ollama/llama3" via OpenAI-compat, strip prefix.
-    if (r.provider === 'ollama' && urlPath.startsWith('/v1/') && body.length) {
+    // Strip the routing prefix from `model` before forwarding so the upstream
+    // sees the real model name. Built-in for "ollama/" + any user-defined
+    // model_routes prefix declared on the matching route.
+    const stripPrefix = r.strip_model_prefix
+        ?? (r.provider === 'ollama' && urlPath.startsWith('/v1/') ? 'ollama/' : null);
+    if (stripPrefix && body.length) {
         try {
             const j = JSON.parse(body.toString('utf8'));
-            if (typeof j.model === 'string' && j.model.startsWith('ollama/')) {
-                j.model = j.model.slice('ollama/'.length);
+            if (typeof j.model === 'string' && j.model.startsWith(stripPrefix)) {
+                j.model = j.model.slice(stripPrefix.length);
                 finalBody = Buffer.from(JSON.stringify(j));
             }
         }
@@ -540,6 +578,136 @@ function status() {
         const localTag = v.is_local ? ' 🏠 local' : '';
         console.log(`  ${k}: ${v.base}${localTag}`);
     }
+    if ((cfg.model_routes || []).length > 0) {
+        console.log('model routes:');
+        for (const r of cfg.model_routes) {
+            console.log(`  "${r.prefix}" → ${r.upstream}${r.strip === false ? ' (no-strip)' : ''}`);
+        }
+    }
+}
+// ─── upstream / route CLI commands ──────────────────────────────────────────
+function parseFlags(args) {
+    const positional = [];
+    const flags = {};
+    for (let i = 0; i < args.length; i++) {
+        const a = args[i];
+        if (a.startsWith('--')) {
+            const k = a.slice(2);
+            const next = args[i + 1];
+            if (!next || next.startsWith('--'))
+                flags[k] = true;
+            else {
+                flags[k] = next;
+                i++;
+            }
+        }
+        else {
+            positional.push(a);
+        }
+    }
+    return { positional, flags };
+}
+function upstreamCmd(args) {
+    const cfg = loadConfig();
+    const { positional, flags } = parseFlags(args);
+    const sub = positional[0];
+    if (sub === 'add') {
+        const name = positional[1];
+        const base = flags.base;
+        if (!name || !base) {
+            console.error('usage: tokendome upstream add <name> --base <url> [--local]');
+            process.exit(1);
+        }
+        cfg.upstreams[name] = { base, ...(flags.local ? { is_local: true } : {}) };
+        saveConfig(cfg);
+        console.log('✓ added upstream', name, '→', base, flags.local ? '(local)' : '');
+        return;
+    }
+    if (sub === 'rm') {
+        const name = positional[1];
+        if (!name) {
+            console.error('usage: tokendome upstream rm <name>');
+            process.exit(1);
+        }
+        if (['openai', 'anthropic', 'google', 'ollama'].includes(name)) {
+            console.error('✘ cannot remove built-in upstream', name, '(use `tokendome set upstreams.' + name + '.base <url>` to retarget instead)');
+            process.exit(1);
+        }
+        delete cfg.upstreams[name];
+        cfg.model_routes = (cfg.model_routes || []).filter((r) => r.upstream !== name);
+        saveConfig(cfg);
+        console.log('✓ removed upstream', name);
+        return;
+    }
+    console.error('usage: tokendome upstream add|rm …');
+    process.exit(1);
+}
+function routeCmd(args) {
+    const cfg = loadConfig();
+    const { positional, flags } = parseFlags(args);
+    const sub = positional[0];
+    cfg.model_routes ??= [];
+    if (sub === 'add') {
+        const prefix = positional[1];
+        const upstream = positional[2];
+        if (!prefix || !upstream) {
+            console.error('usage: tokendome route add <model-prefix> <upstream-name>');
+            process.exit(1);
+        }
+        if (!cfg.upstreams[upstream]) {
+            console.error('✘ no such upstream:', upstream);
+            process.exit(1);
+        }
+        cfg.model_routes = cfg.model_routes.filter((r) => r.prefix !== prefix);
+        cfg.model_routes.push({ prefix, upstream, ...(flags['no-strip'] ? { strip: false } : {}) });
+        saveConfig(cfg);
+        console.log('✓ added route', prefix, '→', upstream);
+        return;
+    }
+    if (sub === 'rm') {
+        const prefix = positional[1];
+        if (!prefix) {
+            console.error('usage: tokendome route rm <model-prefix>');
+            process.exit(1);
+        }
+        const before = cfg.model_routes.length;
+        cfg.model_routes = cfg.model_routes.filter((r) => r.prefix !== prefix);
+        saveConfig(cfg);
+        console.log('✓ removed', before - cfg.model_routes.length, 'route(s)');
+        return;
+    }
+    console.error('usage: tokendome route add|rm …');
+    process.exit(1);
+}
+// `tokendome captures` — fetch the running agent's recent-request log
+async function capturesCmd(args) {
+    const { flags } = parseFlags(args);
+    const limit = Number(flags.limit) || 50;
+    const cfg = loadConfig();
+    const url = `http://127.0.0.1:${cfg.port}/_ta/captures?limit=${limit}`;
+    try {
+        const r = await fetch(url);
+        if (!r.ok) {
+            console.error('✘ agent responded', r.status);
+            process.exit(1);
+        }
+        const j = await r.json();
+        if (!j.captures.length) {
+            console.log('No captures yet — make a call through the proxy.');
+            return;
+        }
+        for (const c of j.captures) {
+            const d = new Date(c.ts).toISOString().slice(11, 19);
+            const tokens = (c.in != null && c.out != null) ? `  ${c.in}↑ ${c.out}↓` : '';
+            const local = c.is_local ? ' 🏠' : '';
+            console.log(`${d}  ${String(c.status || '???').padEnd(3)} ${(c.provider || '?').padEnd(9)} ${(c.model || c.url).slice(0, 40).padEnd(40)}${tokens}${local}`);
+        }
+    }
+    catch (e) {
+        console.error('✘ could not reach agent on port', cfg.port, '—', e.message);
+        console.error('  Is `tokendome start` running? Or did `tokendome service install` finish?');
+        process.exit(1);
+    }
 }
 function help() {
     console.log(`tokendome — local token telemetry agent
@@ -547,12 +715,25 @@ function help() {
   tokendome login <token> [server_url]   save your credentials
   tokendome start                        run the proxy (foreground)
   tokendome status                       show config
+  tokendome captures [--limit N]         show the last N requests the proxy has handled (default 50)
   tokendome set <key> <value>            e.g. tokendome set upstreams.ollama.base http://192.168.1.5:11434
-                                         e.g. tokendome set upstreams.openai.is_local true   (mark a self-hosted OpenAI-compat server as local)
+
+  tokendome upstream add <name> --base <url> [--local]
+  tokendome upstream rm <name>
+  tokendome route add <model-prefix> <upstream-name> [--no-strip]
+  tokendome route rm <model-prefix>
+
   tokendome service install              install as a launchd/systemd user service so the proxy starts on login
   tokendome service uninstall            remove the user service
   tokendome service status               show whether the user service is loaded
   tokendome help
+
+Multi-source examples:
+  # Mark a self-hosted vLLM as local compute on the leaderboard:
+  tokendome upstream add vllm --base http://localhost:8000 --local
+  tokendome route add "vllm/" vllm
+  # Now any chat call with model="vllm/llama3-70b" hits the local vLLM
+  # and shows up as is_local=true (cost = 0).
 `);
 }
 // ─── Service install (launchd on macOS, systemd --user on Linux) ────────────
@@ -722,6 +903,9 @@ function main() {
         case 'login': return login(rest[0], rest[1]);
         case 'status': return status();
         case 'set': return setKey(rest[0], rest.slice(1).join(' '));
+        case 'upstream': return upstreamCmd(rest);
+        case 'route': return routeCmd(rest);
+        case 'captures': return capturesCmd(rest);
         case 'service': {
             const sub = rest[0];
             if (sub === 'install')

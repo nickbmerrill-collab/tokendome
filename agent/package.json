@@ -1,0 +1,17 @@
+{
+  "name": "tokendome",
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Local proxy agent that reports your LLM token usage to THE TOKENDOME.",
+  "bin": { "tokendome": "./dist/tokendome.js" },
+  "scripts": {
+    "build": "tsc && chmod +x dist/tokendome.js && cp dist/tokendome.js ../public/tokendome.js",
+    "start": "node dist/tokendome.js start"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0"
+  },
+  "engines": { "node": ">=18" }
+}

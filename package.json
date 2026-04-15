@@ -1,0 +1,19 @@
+{
+  "name": "tokendome",
+  "version": "0.1.0",
+  "private": true,
+  "description": "THE TOKENDOME — competitive LLM token usage leaderboard.",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel deploy --prod"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^0.9.4",
+    "@vercel/node": "^5.7.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0",
+    "vercel": "^37.0.0"
+  }
+}

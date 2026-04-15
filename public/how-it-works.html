@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>How THE TOKENDOME works</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;700;900&family=Inter:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/icon?family=Material+Symbols+Outlined" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        primary: '#facc15',
+        'primary-container': '#facc15',
+        'on-primary': '#0B0B10',
+        'on-primary-container': '#0B0B10',
+        secondary: '#10B981',
+        'on-surface': '#F8FAFC',
+        'on-surface-variant': '#94A3B8',
+        'surface-container-lowest': '#0B0B10',
+        'surface-container-low': '#16161B',
+        'surface-container': '#1C1C21',
+        'surface-container-high': '#22222A',
+        'surface-container-highest': '#2A2A32',
+        'outline-variant': '#3F3F46',
+      },
+      fontFamily: { headline: ['Space Grotesk', 'sans-serif'], data: ['JetBrains Mono', 'monospace'], sans: ['Inter', 'sans-serif'] },
+    },
+  },
+};
+</script>
+<style>
+  body { background: #0B0B10; color: #F8FAFC; font-family: 'Inter', sans-serif; }
+  .font-data { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+  .font-headline { font-family: 'Space Grotesk', sans-serif; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<header class="border-b border-primary-container/30 bg-surface-container-low px-8 py-4 flex items-center justify-between">
+  <a href="/" class="flex items-center gap-2">
+    <span class="material-symbols-outlined text-primary-container">bolt</span>
+    <span class="text-2xl font-black tracking-tighter text-primary-container italic font-headline uppercase">⚡ THE TOKENDOME</span>
+  </a>
+  <a href="/" class="text-xs font-headline font-bold uppercase tracking-widest text-on-surface-variant hover:text-primary-container">← back to leaderboard</a>
+</header>
+
+<main class="max-w-5xl mx-auto px-6 py-16 space-y-16">
+
+  <section class="space-y-4">
+    <p class="text-xs font-headline font-black uppercase tracking-[0.3em] text-primary-container">How it works</p>
+    <h1 class="text-5xl md:text-6xl font-headline font-black italic tracking-tighter">The math behind every number on the leaderboard.</h1>
+    <p class="text-on-surface-variant max-w-2xl text-lg">Three rules: <span class="text-on-surface">no manual entry</span>, <span class="text-on-surface">prompts never leave your machine</span>, <span class="text-on-surface">counts come from the provider, not from us guessing</span>.</p>
+  </section>
+
+  <!-- Diagram -->
+  <section class="grid md:grid-cols-3 gap-1 bg-surface-container border border-outline-variant/20 p-1">
+    <div class="bg-surface-container-low p-6 space-y-2">
+      <div class="flex items-center gap-2"><span class="material-symbols-outlined text-on-surface-variant">computer</span><p class="text-[10px] font-headline font-black uppercase tracking-widest text-on-surface-variant">Your machine</p></div>
+      <p class="text-sm">Your app makes a normal call to OpenAI / Anthropic / Google / Ollama. Either through the bundled SDK shim, or pointed at the local proxy at <code class="font-data text-primary-container">localhost:4000</code>.</p>
+      <p class="font-data text-[10px] text-secondary mt-2">→ forwarded verbatim, with your API key</p>
+    </div>
+    <div class="bg-surface-container-low p-6 space-y-2">
+      <div class="flex items-center gap-2"><span class="material-symbols-outlined text-on-surface-variant">cloud</span><p class="text-[10px] font-headline font-black uppercase tracking-widest text-on-surface-variant">Provider</p></div>
+      <p class="text-sm">The real provider answers normally — you get back the same response, the same latency, the same streaming chunks, the same errors.</p>
+      <p class="font-data text-[10px] text-secondary mt-2">→ response includes <span class="text-primary-container">usage</span> field</p>
+    </div>
+    <div class="bg-surface-container-low p-6 space-y-2">
+      <div class="flex items-center gap-2"><span class="material-symbols-outlined text-primary-container">leaderboard</span><p class="text-[10px] font-headline font-black uppercase tracking-widest text-primary-container">Tokendome</p></div>
+      <p class="text-sm">The shim/proxy reads <em>just the count</em> from <span class="font-data text-primary-container">usage.input_tokens</span> / <span class="font-data text-primary-container">output_tokens</span>, signs it with your agent token, posts it to the cloud.</p>
+      <p class="font-data text-[10px] text-primary-container mt-2">→ counts only · HMAC-signed</p>
+    </div>
+  </section>
+
+  <!-- The three claims -->
+  <section class="grid md:grid-cols-3 gap-4">
+    <div class="bg-surface-container-low border border-outline-variant/20 p-6 space-y-3">
+      <span class="material-symbols-outlined text-3xl text-primary-container">verified</span>
+      <h3 class="text-xl font-headline font-black uppercase">Accurate</h3>
+      <p class="text-sm text-on-surface-variant">We don't re-tokenize. We read the provider's own <code class="font-data text-primary-container">usage</code> field — exactly what they bill you on. For Ollama and other local models we read <code class="font-data text-primary-container">prompt_eval_count</code> + <code class="font-data text-primary-container">eval_count</code> from the response.</p>
+    </div>
+    <div class="bg-surface-container-low border border-outline-variant/20 p-6 space-y-3">
+      <span class="material-symbols-outlined text-3xl text-primary-container">lock</span>
+      <h3 class="text-xl font-headline font-black uppercase">Safe</h3>
+      <p class="text-sm text-on-surface-variant">Your API keys stay local — they pass through the proxy directly to the upstream and never land on the Tokendome server. Prompts and completions are never sent to us. Only counts: <code class="font-data text-primary-container">{ts, model, input_tokens, output_tokens}</code>.</p>
+    </div>
+    <div class="bg-surface-container-low border border-outline-variant/20 p-6 space-y-3">
+      <span class="material-symbols-outlined text-3xl text-primary-container">bolt</span>
+      <h3 class="text-xl font-headline font-black uppercase">Live</h3>
+      <p class="text-sm text-on-surface-variant">The agent batches events every 3 seconds and posts them over HTTPS. The leaderboard polls the API every 3 seconds. End-to-end you'll see your call show up within ~6 seconds of it completing.</p>
+    </div>
+  </section>
+
+  <!-- Anti-cheat -->
+  <section class="space-y-4">
+    <p class="text-xs font-headline font-black uppercase tracking-[0.3em] text-primary-container">Anti-cheat</p>
+    <h2 class="text-3xl font-headline font-black italic uppercase">Why you can trust the numbers</h2>
+    <div class="grid md:grid-cols-2 gap-4">
+      <div class="bg-surface-container-low border border-outline-variant/20 p-5 space-y-2">
+        <p class="font-headline font-bold uppercase text-sm">No manual input</p>
+        <p class="text-sm text-on-surface-variant">There is no "submit your token count" form. The only way to add to your total is to actually call a real provider through the agent or SDK. The provider's own usage field is the source of truth.</p>
+      </div>
+      <div class="bg-surface-container-low border border-outline-variant/20 p-5 space-y-2">
+        <p class="font-headline font-bold uppercase text-sm">HMAC-signed events</p>
+        <p class="text-sm text-on-surface-variant">Every event is signed with <code class="font-data text-primary-container">HMAC-SHA256(agent_token, ts.sha256(body))</code>. The server rejects events with a stale timestamp (&gt;60s drift) or a bad signature. You can't replay or forge events for someone else's account.</p>
+      </div>
+      <div class="bg-surface-container-low border border-outline-variant/20 p-5 space-y-2">
+        <p class="font-headline font-bold uppercase text-sm">Open source</p>
+        <p class="text-sm text-on-surface-variant">The agent and SDK shims are open source (Apache 2.0). Read the file that builds the event payload — it's about 30 lines. If you spot something we're sending that shouldn't be sent, file an issue and we'll cut a release that day.</p>
+      </div>
+      <div class="bg-surface-container-low border border-outline-variant/20 p-5 space-y-2">
+        <p class="font-headline font-bold uppercase text-sm">Server-side caps</p>
+        <p class="text-sm text-on-surface-variant">Ingest rejects single events &gt; 2M tokens or batches &gt; 500 events. Future: per-user rate limits and a remote-attestation challenge that pings your agent with a nonce; if you can't echo it back in 2s, your recent events decay.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- The actual payload -->
+  <section class="space-y-4">
+    <p class="text-xs font-headline font-black uppercase tracking-[0.3em] text-primary-container">The wire format</p>
+    <h2 class="text-3xl font-headline font-black italic uppercase">This is exactly what we send</h2>
+    <p class="text-sm text-on-surface-variant max-w-3xl">No prompts. No completions. No system instructions. No tool calls. No file paths. Not even the upstream URL — that stays local.</p>
+    <pre class="bg-surface-container-lowest border border-primary-container/20 p-5 font-data text-xs overflow-x-auto"><code>POST /api/ingest
+x-ta-user: 42
+x-ta-ts:   1776207525088
+x-ta-sig:  3a4f1c…  // HMAC-SHA256(agent_token, ts.sha256(body))
+
+{
+  "events": [
+    {
+      "ts":            1776207524217,
+      "provider":      "anthropic",
+      "model":         "claude-haiku-4-5",
+      "is_local":      false,
+      "input_tokens":  1234,
+      "output_tokens": 567,
+      "cache_read_tokens":  0,
+      "cache_write_tokens": 0
+    }
+  ]
+}</code></pre>
+  </section>
+
+  <section class="text-center py-12 border-t border-outline-variant/20">
+    <a href="/" class="inline-block bg-primary-container text-on-primary-container px-8 py-4 font-headline font-black uppercase tracking-tighter italic text-xl hover:scale-105 transition-transform">enter the dome →</a>
+  </section>
+</main>
+
+<footer class="border-t border-outline-variant/20 px-8 py-6 text-center text-[10px] font-data uppercase tracking-widest text-on-surface-variant">
+  prompts never leave your machine · counts come from provider usage fields · no manual input
+</footer>
+</body>
+</html>

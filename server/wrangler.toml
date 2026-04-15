@@ -1,0 +1,21 @@
+name = "tokenarena"
+main = "src/index.ts"
+compatibility_date = "2025-04-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+GITHUB_CLIENT_ID = "REPLACE_ME"
+PUBLIC_URL = "https://tokenarena.example.com"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "tokenarena"
+database_id = "REPLACE_WITH_WRANGLER_D1_CREATE_OUTPUT"
+
+[[durable_objects.bindings]]
+name = "LIVE"
+class_name = "LiveRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["LiveRoom"]

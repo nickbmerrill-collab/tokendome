@@ -1,0 +1,78 @@
+-- Postgres schema for THE TOKENDOME
+CREATE TABLE IF NOT EXISTS users (
+  id SERIAL PRIMARY KEY,
+  github_id BIGINT UNIQUE NOT NULL,
+  login TEXT NOT NULL,        -- GitHub handle, kept for OAuth identity but never displayed if display_name is set
+  display_name TEXT,          -- Optional pseudonym shown publicly. NULL → fall back to login.
+  hidden BOOLEAN NOT NULL DEFAULT FALSE,  -- Ghost mode: still tracked, never displayed publicly.
+  avatar_url TEXT,
+  agent_token TEXT UNIQUE NOT NULL,
+  created_at BIGINT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS token_events (
+  id BIGSERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  ts BIGINT NOT NULL,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  is_local BOOLEAN NOT NULL DEFAULT FALSE,
+  input_tokens INTEGER NOT NULL,
+  output_tokens INTEGER NOT NULL,
+  cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+  -- Approximate USD cost in cents, computed at ingest time.
+  cost_cents INTEGER NOT NULL DEFAULT 0,
+  -- Provenance: 'agent' (proxy/SDK ingest) vs 'admin_import' (Anthropic Admin API
+  -- backfill). Lets us delete-then-reimport without dupes, and lets the UI
+  -- show a "verified-by-Anthropic-billing" badge on imported rows.
+  source TEXT NOT NULL DEFAULT 'agent'
+);
+CREATE INDEX IF NOT EXISTS idx_events_user_ts ON token_events(user_id, ts);
+CREATE INDEX IF NOT EXISTS idx_events_ts ON token_events(ts);
+
+-- Private "domes" — friend-group leaderboards. The global leaderboard is just
+-- the absence of a dome filter. Membership controls visibility into a dome's
+-- scoped scoreboard; ingest is unaffected (counts are still global per user).
+CREATE TABLE IF NOT EXISTS domes (
+  id BIGSERIAL PRIMARY KEY,
+  slug TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  owner_user_id INTEGER NOT NULL REFERENCES users(id),
+  invite_code TEXT UNIQUE NOT NULL,
+  created_at BIGINT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS dome_members (
+  dome_id BIGINT NOT NULL REFERENCES domes(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  role TEXT NOT NULL DEFAULT 'member',
+  joined_at BIGINT NOT NULL,
+  PRIMARY KEY (dome_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_dome_members_user ON dome_members(user_id);
+
+-- 140-char trash-talk messages from one combatant to another. Auto-expires
+-- after 30 minutes; rendered as a chat bubble on the target's leaderboard row.
+CREATE TABLE IF NOT EXISTS trash_talk (
+  id BIGSERIAL PRIMARY KEY,
+  from_user_id INTEGER NOT NULL REFERENCES users(id),
+  to_user_id INTEGER NOT NULL REFERENCES users(id),
+  message TEXT NOT NULL,
+  created_at BIGINT NOT NULL,
+  expires_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_trash_talk_to_exp ON trash_talk(to_user_id, expires_at);
+
+CREATE TABLE IF NOT EXISTS totals (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id),
+  total_input BIGINT NOT NULL DEFAULT 0,
+  total_output BIGINT NOT NULL DEFAULT 0,
+  local_tokens BIGINT NOT NULL DEFAULT 0,
+  -- Approximate USD cost in cents, computed at ingest time from the
+  -- price table in lib/pricing.ts. Historical accuracy is preserved
+  -- even if prices later change.
+  total_cost_cents BIGINT NOT NULL DEFAULT 0,
+  updated_at BIGINT NOT NULL
+);
+

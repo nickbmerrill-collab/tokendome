@@ -1,0 +1,26 @@
+{
+  "name": "@tokendome/openai",
+  "version": "0.1.0",
+  "description": "Drop-in replacement for the openai SDK that reports your token usage to THE TOKENDOME leaderboard.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "openai": ">=4.50.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": { "node": ">=18" },
+  "files": ["dist", "README.md"]
+}

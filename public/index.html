@@ -1,0 +1,1722 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>THE TOKENDOME | Live LLM Leaderboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;700&amp;family=Inter:wght@400;500;600&amp;display=swap"/>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap"/>
+<style>
+  .material-symbols-outlined { font-variation-settings: 'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24; vertical-align: middle; }
+  body { font-family: 'Inter', sans-serif; background-color: #131318; }
+  .font-headline { font-family: 'Space Grotesk', sans-serif; }
+  .font-data { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+  @keyframes pulse-emerald { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:.4; transform:scale(1.2); } }
+  .animate-pulse-emerald { animation: pulse-emerald 1.5s cubic-bezier(.4,0,.6,1) infinite; }
+  @keyframes flash { 0% { background:#facc15; } 100% { background:transparent; } }
+  .flash { animation: flash 1.3s ease-out; }
+  /* Overtake confetti — small absolutely-positioned squares that fall and fade */
+  .confetti-piece {
+    position: absolute; pointer-events: none; width: 6px; height: 8px;
+    will-change: transform, opacity;
+    animation: confetti-fall 1.4s cubic-bezier(.2,.7,.4,1) forwards;
+  }
+  @keyframes confetti-fall {
+    0%   { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+    100% { transform: translate(var(--cx, 0), var(--cy, 80px)) rotate(var(--cr, 540deg)); opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .animate-pulse-emerald, .flash, .confetti-piece { animation: none !important; }
+  }
+</style>
+<script id="tailwind-config">
+tailwind.config = {
+  darkMode: 'class',
+  theme: { extend: {
+    colors: {
+      'error': '#ffb4ab',
+      'surface': '#131318',
+      'on-surface': '#e4e1e9',
+      'on-surface-variant': '#d1c6ab',
+      'on-primary': '#3c2f00',
+      'outline-variant': '#4d4632',
+      'outline': '#9a9078',
+      'surface-container-lowest': '#0e0e13',
+      'surface-container-low': '#1b1b20',
+      'surface-container': '#1f1f24',
+      'surface-container-high': '#2a292f',
+      'surface-container-highest': '#35343a',
+      'primary': '#ffecb9',
+      'primary-container': '#facc15',
+      'on-primary-container': '#6c5700',
+      'secondary': '#4edea3',
+      'secondary-fixed': '#6ffbbe',
+      'secondary-fixed-dim': '#4edea3',
+      'background': '#131318',
+    },
+    borderRadius: { DEFAULT: '.125rem', lg: '.25rem', xl: '.5rem', full: '.75rem' }
+  }}
+};
+</script>
+</head>
+<body class="bg-surface text-on-surface selection:bg-primary-container selection:text-on-primary-container min-h-screen">
+
+<!-- ╔════════════════════════════════════════════════════════════════╗
+     ║ LANDING (signed-out view). Hidden once /me returns authed.     ║
+     ╚════════════════════════════════════════════════════════════════╝ -->
+<div id="landing" class="hidden">
+  <header class="fixed top-0 w-full z-50 bg-[#131318]/80 backdrop-blur-xl shadow-2xl shadow-black/50">
+    <div class="flex justify-between items-center px-8 h-20 w-full mx-auto max-w-[1440px]">
+      <div class="flex items-center gap-8">
+        <span class="text-2xl font-black tracking-tighter text-[#facc15] italic font-headline uppercase">⚡ THE TOKENDOME</span>
+        <nav class="hidden md:flex gap-6 font-headline tracking-tighter uppercase font-bold text-xs">
+          <a class="text-[#facc15] border-b-2 border-[#facc15] pb-1" href="#">Arena</a>
+          <a class="text-zinc-500 hover:text-zinc-200" href="#coliseum">Leaderboard</a>
+          <a class="text-zinc-500 hover:text-zinc-200" href="/how-it-works.html">How it works</a>
+          <a class="text-zinc-500 hover:text-zinc-200" href="/install.sh">Install</a>
+        </nav>
+      </div>
+      <a href="/api/auth/github" class="flex items-center gap-2 px-6 py-2 bg-primary-container text-on-primary-container font-headline font-bold text-xs uppercase tracking-widest rounded-lg hover:brightness-110 active:scale-95 transition-all">
+        <span class="material-symbols-outlined text-sm">terminal</span>
+        Sign In with GitHub
+      </a>
+    </div>
+  </header>
+
+  <main class="pt-32 pb-20 px-4 md:px-8 max-w-[1440px] mx-auto min-h-screen">
+    <!-- Hero -->
+    <section class="mb-12 relative overflow-hidden">
+      <div class="absolute -top-24 -right-24 w-96 h-96 bg-primary-container/10 blur-[120px] rounded-full"></div>
+      <div class="flex flex-col md:flex-row justify-between items-end gap-8 border-b-4 border-primary-container pb-8">
+        <div>
+          <h1 class="text-6xl md:text-8xl font-black font-headline tracking-tighter leading-none mb-4 uppercase italic">
+            BURN <span class="text-primary-container">TOKENS</span><br/>CLAIM GLORY.
+          </h1>
+          <p class="text-xl text-outline font-body max-w-2xl">
+            Live leaderboard for LLM token burners. Model-agnostic. Proxy-verified. Two devs enter, one leaderboard leaves.
+          </p>
+          <p class="text-sm text-outline/60 font-body max-w-2xl mt-3">
+            A local proxy reads the provider's own <code class="text-primary-container font-data">usage</code> field. No manual input. No guessing. No cheating.
+          </p>
+        </div>
+        <div class="flex flex-col items-end">
+          <div id="hero-throughput" class="text-primary-container font-data text-4xl font-bold tracking-tight">0</div>
+          <div class="text-xs uppercase tracking-widest text-outline font-headline font-bold">Total Dome Throughput (tokens)</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Bento cards -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+      <div class="col-span-1 bg-surface-container-high p-6 rounded-lg flex flex-col justify-between h-48 hover:bg-surface-container-highest transition-colors">
+        <div class="flex justify-between items-start">
+          <span class="material-symbols-outlined text-primary-container text-3xl">bolt</span>
+          <span id="hero-live-pill" class="text-[10px] bg-secondary-container/20 text-secondary px-2 py-1 rounded-full font-bold uppercase tracking-widest">connecting</span>
+        </div>
+        <div>
+          <div id="hero-events-min" class="text-3xl font-data font-bold leading-none">—</div>
+          <div class="text-xs uppercase tracking-widest text-outline mt-1">Events/Min</div>
+        </div>
+      </div>
+      <div class="col-span-1 bg-surface-container-high p-6 rounded-lg flex flex-col justify-between h-48 hover:bg-surface-container-highest transition-colors">
+        <div class="flex justify-between items-start">
+          <span class="material-symbols-outlined text-primary-container text-3xl">hub</span>
+          <div class="text-right">
+            <div class="text-[10px] font-black uppercase tracking-widest text-outline leading-none">Providers</div>
+            <div id="hero-providers" class="text-xs font-data text-outline-variant mt-1">—</div>
+          </div>
+        </div>
+        <div>
+          <div class="flex items-baseline gap-2">
+            <div id="hero-combatants" class="text-3xl font-data font-bold leading-none">0</div>
+            <div class="text-xs font-data text-outline-variant">combatants</div>
+          </div>
+          <div class="text-xs uppercase tracking-widest text-outline mt-1 flex items-center gap-1">
+            <span id="hero-events-min" class="text-secondary font-data font-bold">—</span>
+            <span>events/min</span>
+          </div>
+        </div>
+      </div>
+      <div class="col-span-1 md:col-span-2 bg-primary-container p-6 rounded-lg flex flex-col justify-between h-48 overflow-hidden relative group">
+        <div class="relative z-10 flex justify-between items-start text-on-primary-container">
+          <span class="material-symbols-outlined text-3xl">workspace_premium</span>
+          <div class="text-right">
+            <div class="text-[10px] font-black uppercase tracking-widest leading-none">MVP of the Dome</div>
+            <div id="hero-mvp-name" class="text-xl font-headline font-black italic">@awaiting_champion</div>
+          </div>
+        </div>
+        <div class="relative z-10">
+          <div id="hero-mvp-burn" class="text-4xl font-data font-black text-on-primary-container leading-none">—</div>
+          <div class="text-xs uppercase tracking-widest text-on-primary-container/80 mt-1 font-bold">Personal Burn</div>
+        </div>
+        <div class="absolute -bottom-8 -right-8 opacity-10 scale-150 rotate-12 group-hover:rotate-0 transition-transform duration-700">
+          <span class="material-symbols-outlined text-[200px]">trophy</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Coliseum preview (top 5 live) -->
+    <div id="coliseum" class="bg-surface-container-lowest rounded-lg overflow-hidden">
+      <div class="grid grid-cols-12 gap-4 px-8 py-4 bg-surface-container-high font-headline font-black text-[10px] uppercase tracking-[0.2em] text-outline italic">
+        <div class="col-span-1">Rank</div>
+        <div class="col-span-4 md:col-span-5">Burner</div>
+        <div class="col-span-3 md:col-span-3">Primary Engine</div>
+        <div class="col-span-3 md:col-span-2 text-right">Total Tokens</div>
+        <div class="col-span-1 text-center">Status</div>
+      </div>
+      <div id="hero-rows"></div>
+      <div id="hero-empty" class="hidden p-16 text-center">
+        <p class="text-4xl font-headline font-black italic uppercase text-primary-container">The Dome Awaits Its First Champion</p>
+        <p class="text-outline mt-3">No combatants yet. Be first. Glory is uncontested.</p>
+      </div>
+    </div>
+
+    <!-- CTA panels -->
+    <section class="mt-12 grid grid-cols-1 md:grid-cols-2 gap-8">
+      <div class="bg-surface-container-high p-8 rounded-lg border-l-4 border-primary-container relative overflow-hidden">
+        <h3 class="text-3xl font-black font-headline uppercase italic mb-4">Deploy Your Proxy</h3>
+        <p class="text-outline mb-6">Sign in with GitHub, grab your agent token, point your LLM clients at localhost. We handle the rest. Your prompts never leave your machine.</p>
+        <a href="/api/auth/github" class="inline-block bg-primary-container text-on-primary-container px-8 py-4 font-headline font-black uppercase tracking-tighter italic text-xl hover:scale-105 transition-transform active:scale-95">
+          Enter the Dome →
+        </a>
+        <div class="absolute -bottom-10 -right-10 opacity-5"><span class="material-symbols-outlined text-[180px]">key</span></div>
+      </div>
+      <div class="bg-surface-container-high p-8 rounded-lg border-l-4 border-secondary relative overflow-hidden">
+        <h3 class="text-3xl font-black font-headline uppercase italic mb-4">House Rules</h3>
+        <div class="space-y-3 font-body">
+          <div class="flex justify-between items-center bg-surface-container-lowest p-3 rounded">
+            <span class="text-xs font-headline font-bold uppercase tracking-widest text-outline">Counts From</span>
+            <span class="text-secondary font-data font-bold">PROVIDER USAGE</span>
+          </div>
+          <div class="flex justify-between items-center bg-surface-container-lowest p-3 rounded">
+            <span class="text-xs font-headline font-bold uppercase tracking-widest text-outline">Prompt Content</span>
+            <span class="text-secondary font-data font-bold">STAYS LOCAL</span>
+          </div>
+          <div class="flex justify-between items-center bg-surface-container-lowest p-3 rounded">
+            <span class="text-xs font-headline font-bold uppercase tracking-widest text-outline">Manual Input</span>
+            <span class="text-error font-data font-bold">REJECTED</span>
+          </div>
+          <div class="flex justify-between items-center bg-surface-container-lowest p-3 rounded">
+            <span class="text-xs font-headline font-bold uppercase tracking-widest text-outline">Local Models</span>
+            <span class="text-primary-container font-data font-bold">COUNT TOO</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="w-full border-t border-zinc-800/50 bg-[#131318]">
+    <div class="flex flex-col md:flex-row justify-between items-center px-8 py-12 w-full max-w-[1440px] mx-auto">
+      <div class="text-zinc-600 font-data text-xs uppercase tracking-widest mb-8 md:mb-0">
+        ⚡ THE TOKENDOME // TWO DEVS ENTER, ONE LEADERBOARD LEAVES
+      </div>
+      <div class="flex gap-8 font-data text-xs uppercase tracking-widest">
+        <a class="text-zinc-600 hover:text-[#facc15]" href="#">Terms of Combat</a>
+        <a class="text-zinc-600 hover:text-[#facc15]" href="#">Privacy Protocol</a>
+      </div>
+    </div>
+  </footer>
+</div>
+
+<!-- ╔════════════════════════════════════════════════════════════════╗
+     ║ APP (signed-in view). Hidden until authed.                     ║
+     ╚════════════════════════════════════════════════════════════════╝ -->
+<div id="app" class="hidden">
+<!-- Top nav -->
+<header class="flex justify-between items-center px-6 h-16 w-full border-b border-primary-container/10 bg-[#131318] fixed top-0 z-50">
+  <div class="flex items-center gap-6">
+    <h1 class="text-2xl font-black tracking-tighter text-[#facc15] font-headline">⚡ THE TOKENDOME</h1>
+    <div class="hidden lg:flex flex-col border-l border-outline-variant/30 pl-6">
+      <span class="text-[10px] uppercase tracking-widest text-on-surface-variant font-headline font-bold">Verified Proxy Status</span>
+      <p class="text-xs text-on-surface-variant">Two devs enter. One leaderboard leaves. Model-agnostic.</p>
+    </div>
+  </div>
+  <div class="flex items-center gap-4">
+    <div class="flex items-center gap-2 bg-secondary/10 px-3 py-1 border border-secondary/20">
+      <span class="relative flex h-2 w-2">
+        <span class="animate-pulse-emerald absolute inline-flex h-full w-full rounded-full bg-secondary opacity-75"></span>
+        <span class="relative inline-flex rounded-full h-2 w-2 bg-secondary"></span>
+      </span>
+      <span id="rate" class="text-[10px] font-data font-bold text-secondary uppercase tracking-tighter">connecting…</span>
+    </div>
+    <div class="relative">
+      <button id="dome-switcher" class="hidden flex items-center gap-1 text-xs font-headline font-bold uppercase tracking-widest text-primary-container border border-primary-container/40 px-3 py-1 hover:bg-primary-container/10">
+        <span class="material-symbols-outlined text-sm">public</span>
+        <span id="dome-switcher-label">Global</span>
+        <span class="material-symbols-outlined text-sm">expand_more</span>
+      </button>
+      <div id="dome-menu" class="hidden absolute right-0 top-full mt-1 w-64 bg-surface-container-low border border-primary-container/40 z-30 p-1">
+        <button data-dome-pick="" class="dome-menu-item w-full text-left px-3 py-2 text-xs font-headline font-bold uppercase tracking-widest hover:bg-primary-container/10 flex items-center gap-2">
+          <span class="material-symbols-outlined text-sm">public</span><span>Global</span>
+        </button>
+        <div id="dome-menu-list"></div>
+        <hr class="border-outline-variant/20 my-1"/>
+        <button id="dome-create-btn" class="w-full text-left px-3 py-2 text-xs font-headline font-bold uppercase tracking-widest text-secondary hover:bg-secondary/10 flex items-center gap-2">
+          <span class="material-symbols-outlined text-sm">add_circle</span><span>Create dome</span>
+        </button>
+        <button id="dome-join-btn" class="w-full text-left px-3 py-2 text-xs font-headline font-bold uppercase tracking-widest text-secondary hover:bg-secondary/10 flex items-center gap-2">
+          <span class="material-symbols-outlined text-sm">key</span><span>Join with code</span>
+        </button>
+      </div>
+    </div>
+    <button id="settings-open" class="hidden text-on-surface-variant hover:text-primary-container" title="Settings">
+      <span class="material-symbols-outlined">settings</span>
+    </button>
+    <div id="authbox"></div>
+  </div>
+</header>
+
+<!-- Side nav -->
+<nav class="fixed left-0 top-16 bottom-0 w-64 flex-col border-r border-primary-container/10 bg-[#131318] hidden md:flex">
+  <div class="p-6 border-b border-primary-container/5">
+    <h2 class="text-[#facc15] font-bold font-headline uppercase tracking-tighter text-sm">Dome Console</h2>
+    <p class="text-[10px] font-data text-on-surface-variant">v0.1.0 · beta</p>
+  </div>
+  <div class="flex-1 py-4">
+    <a href="#" data-tab="all_time" class="tab-link active flex items-center gap-3 px-6 py-3 text-[#facc15] bg-primary-container/10 font-bold border-r-4 border-[#facc15]">
+      <span class="material-symbols-outlined">leaderboard</span>
+      <span class="font-headline text-sm">Scoreboard</span>
+    </a>
+    <a href="#" data-tab="this_week" class="tab-link flex items-center gap-3 px-6 py-3 text-gray-500 hover:text-[#facc15]/70 hover:bg-[#1C1C21]">
+      <span class="material-symbols-outlined">date_range</span>
+      <span class="font-headline text-sm">This Week</span>
+    </a>
+    <a href="#" data-tab="velocity" class="tab-link flex items-center gap-3 px-6 py-3 text-gray-500 hover:text-[#facc15]/70 hover:bg-[#1C1C21]">
+      <span class="material-symbols-outlined">bolt</span>
+      <span class="font-headline text-sm">Velocity</span>
+    </a>
+    <a href="#" data-tab="efficiency" class="tab-link flex items-center gap-3 px-6 py-3 text-gray-500 hover:text-[#facc15]/70 hover:bg-[#1C1C21]">
+      <span class="material-symbols-outlined">savings</span>
+      <span class="font-headline text-sm">Efficiency</span>
+    </a>
+    <a href="#" data-tab="local_hero" class="tab-link flex items-center gap-3 px-6 py-3 text-gray-500 hover:text-[#facc15]/70 hover:bg-[#1C1C21]">
+      <span class="material-symbols-outlined">home_work</span>
+      <span class="font-headline text-sm">Local Hero</span>
+    </a>
+    <a href="#" data-tab="by_provider" class="tab-link flex items-center gap-3 px-6 py-3 text-gray-500 hover:text-[#facc15]/70 hover:bg-[#1C1C21]">
+      <span class="material-symbols-outlined">hub</span>
+      <span class="font-headline text-sm">By Provider</span>
+    </a>
+  </div>
+  <div class="p-6 mt-auto">
+    <a href="/how-it-works.html" class="block text-center w-full bg-surface-container-highest border border-primary-container/20 text-[#facc15] py-2 font-headline text-xs font-bold hover:bg-primary-container/10 uppercase tracking-widest">
+      How It Works
+    </a>
+  </div>
+</nav>
+
+<main class="md:pl-64 pt-16 min-h-screen">
+<div class="p-8 max-w-7xl mx-auto space-y-8">
+
+  <!-- Setup card (hidden until signed in) -->
+  <section id="setup" class="relative bg-primary-container/5 border border-primary-container/20 p-1 flex-col lg:flex-row gap-1 hidden">
+    <button onclick="document.getElementById('setup').style.display='none'" class="absolute top-4 right-4 text-primary-container hover:scale-110 z-10">
+      <span class="material-symbols-outlined">close</span>
+    </button>
+    <div class="flex-1 p-8 space-y-6">
+      <div class="space-y-1">
+        <h3 class="text-xl font-headline font-bold text-primary-container uppercase">Enter the Dome</h3>
+        <p class="text-sm text-on-surface-variant">Pick a path. The first one's faster if you're on Node + Anthropic.</p>
+      </div>
+
+      <!-- Token (shared by both paths) -->
+      <div class="space-y-2">
+        <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">Your Agent Token <span class="text-on-surface-variant/70 normal-case font-normal">— keep secret</span></label>
+        <div class="bg-surface-container-lowest p-3 flex justify-between items-center group">
+          <code id="token" class="font-data text-xs text-primary break-all">—</code>
+          <button data-copy="token" class="copy-btn text-primary-container opacity-50 group-hover:opacity-100"><span class="material-symbols-outlined text-sm">content_copy</span></button>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="flex gap-1 border-b border-outline-variant/20 flex-wrap">
+        <button data-setup-tab="anthropic" class="setup-tab px-4 py-2 text-xs font-headline font-bold uppercase tracking-widest border-b-2 border-primary-container text-primary-container">Anthropic <span class="text-[9px] opacity-60">~30s</span></button>
+        <button data-setup-tab="openai" class="setup-tab px-4 py-2 text-xs font-headline font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant hover:text-primary-container/80">OpenAI <span class="text-[9px] opacity-60">~30s</span></button>
+        <button data-setup-tab="cli" class="setup-tab px-4 py-2 text-xs font-headline font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant hover:text-primary-container/80">CLI Proxy <span class="text-[9px] opacity-60">any provider</span></button>
+        <div class="ml-auto self-center pr-1">
+          <button id="backfill-open" class="text-[10px] font-headline font-bold uppercase tracking-widest text-secondary hover:text-on-surface flex items-center gap-1">
+            <span class="material-symbols-outlined text-sm">history</span>
+            <span>Backfill from Anthropic</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Path: Anthropic SDK -->
+      <div data-setup-panel="anthropic" class="space-y-4">
+        <p class="text-xs text-on-surface-variant">Drop-in replacement for <code class="text-primary">@anthropic-ai/sdk</code>. Change one import. Your prompts never leave your process.</p>
+        <div class="space-y-2">
+          <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">1 — Install</label>
+          <div class="bg-surface-container-lowest p-3 flex justify-between items-center group">
+            <code id="sdk-install-cmd" class="font-data text-xs text-primary">npm i …/tokendome-anthropic.tgz</code>
+            <button data-copy="sdk-install-cmd" class="copy-btn text-primary-container opacity-50 group-hover:opacity-100"><span class="material-symbols-outlined text-sm">content_copy</span></button>
+          </div>
+        </div>
+        <div class="space-y-2">
+          <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">2 — Set token</label>
+          <div class="bg-surface-container-lowest p-3 flex justify-between items-center group">
+            <code id="sdk-env" class="font-data text-xs text-primary break-all">export TOKENDOME_TOKEN=—</code>
+            <button data-copy="sdk-env" class="copy-btn text-primary-container opacity-50 group-hover:opacity-100"><span class="material-symbols-outlined text-sm">content_copy</span></button>
+          </div>
+        </div>
+        <div class="space-y-2">
+          <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">3 — Change one import</label>
+          <div class="bg-surface-container-lowest p-3 flex justify-between items-center group">
+            <code id="sdk-import" class="font-data text-xs text-primary">import Anthropic from '@tokendome/anthropic';</code>
+            <button data-copy="sdk-import" class="copy-btn text-primary-container opacity-50 group-hover:opacity-100"><span class="material-symbols-outlined text-sm">content_copy</span></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Path: OpenAI SDK -->
+      <div data-setup-panel="openai" class="space-y-4 hidden">
+        <p class="text-xs text-on-surface-variant">Drop-in replacement for <code class="text-primary">openai</code>. Change one import. Auto-enables <code class="text-primary">stream_options.include_usage</code> for streaming.</p>
+        <div class="space-y-2">
+          <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">1 — Install</label>
+          <div class="bg-surface-container-lowest p-3 flex justify-between items-center group">
+            <code id="oai-install-cmd" class="font-data text-xs text-primary">npm i …/tokendome-openai.tgz</code>
+            <button data-copy="oai-install-cmd" class="copy-btn text-primary-container opacity-50 group-hover:opacity-100"><span class="material-symbols-outlined text-sm">content_copy</span></button>
+          </div>
+        </div>
+        <div class="space-y-2">
+          <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">2 — Set token</label>
+          <div class="bg-surface-container-lowest p-3 flex justify-between items-center group">
+            <code id="oai-env" class="font-data text-xs text-primary break-all">export TOKENDOME_TOKEN=—</code>
+            <button data-copy="oai-env" class="copy-btn text-primary-container opacity-50 group-hover:opacity-100"><span class="material-symbols-outlined text-sm">content_copy</span></button>
+          </div>
+        </div>
+        <div class="space-y-2">
+          <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">3 — Change one import</label>
+          <div class="bg-surface-container-lowest p-3 flex justify-between items-center group">
+            <code id="oai-import" class="font-data text-xs text-primary">import OpenAI from '@tokendome/openai';</code>
+            <button data-copy="oai-import" class="copy-btn text-primary-container opacity-50 group-hover:opacity-100"><span class="material-symbols-outlined text-sm">content_copy</span></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Path B: CLI -->
+      <div data-setup-panel="cli" class="space-y-4 hidden">
+        <p class="text-xs text-on-surface-variant">Local proxy. Works for OpenAI, Anthropic, Google, Ollama — any language. Required for local models.</p>
+        <div class="space-y-2">
+          <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">1 — Install</label>
+          <div class="bg-surface-container-lowest p-3 flex justify-between items-center group">
+            <code id="install-cmd" class="font-data text-xs text-primary">curl -fsSL …/install.sh | bash</code>
+            <button data-copy="install-cmd" class="copy-btn text-primary-container opacity-50 group-hover:opacity-100"><span class="material-symbols-outlined text-sm">content_copy</span></button>
+          </div>
+        </div>
+        <div class="space-y-2">
+          <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">2 — Login + start</label>
+          <div class="bg-surface-container-lowest p-3 flex justify-between items-center group">
+            <code id="cli-login" class="font-data text-[10px] text-primary break-all">tokendome login &lt;token&gt; &amp;&amp; tokendome start</code>
+            <button data-copy="cli-login" class="copy-btn text-primary-container opacity-50 group-hover:opacity-100"><span class="material-symbols-outlined text-sm">content_copy</span></button>
+          </div>
+        </div>
+        <div class="space-y-2">
+          <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">3 — Point your tools at localhost</label>
+          <div class="grid grid-cols-1 gap-1">
+            <div class="bg-surface-container-lowest p-2 flex justify-between items-center group">
+              <code id="env-openai" class="font-data text-[10px] text-primary">export OPENAI_BASE_URL="http://localhost:4000/v1"</code>
+              <button data-copy="env-openai" class="copy-btn text-primary-container opacity-30 group-hover:opacity-100"><span class="material-symbols-outlined text-xs">content_copy</span></button>
+            </div>
+            <div class="bg-surface-container-lowest p-2 flex justify-between items-center group">
+              <code id="env-anth" class="font-data text-[10px] text-primary">export ANTHROPIC_BASE_URL="http://localhost:4000"</code>
+              <button data-copy="env-anth" class="copy-btn text-primary-container opacity-30 group-hover:opacity-100"><span class="material-symbols-outlined text-xs">content_copy</span></button>
+            </div>
+            <div class="bg-surface-container-lowest p-2 flex justify-between items-center group">
+              <code id="env-ollama" class="font-data text-[10px] text-primary">export OLLAMA_HOST="http://localhost:4000"</code>
+              <button data-copy="env-ollama" class="copy-btn text-primary-container opacity-30 group-hover:opacity-100"><span class="material-symbols-outlined text-xs">content_copy</span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="lg:w-1/3 p-4 bg-surface-container-lowest">
+      <div class="h-full bg-black border border-outline-variant/30 overflow-hidden flex flex-col">
+        <div class="bg-surface-container-high px-3 py-1.5 flex items-center gap-1.5">
+          <div class="w-2.5 h-2.5 rounded-full bg-error/50"></div>
+          <div class="w-2.5 h-2.5 rounded-full bg-primary-container/50"></div>
+          <div class="w-2.5 h-2.5 rounded-full bg-secondary/50"></div>
+          <span class="ml-2 text-[10px] font-data text-on-surface-variant">tokendome — bash — 80x24</span>
+        </div>
+        <div class="p-4 font-data text-xs space-y-1">
+          <p class="text-secondary">$ tokendome login &lt;your-token&gt;</p>
+          <p class="text-on-surface/60">✓ logged in</p>
+          <p class="text-secondary">$ tokendome start</p>
+          <p class="text-on-surface/60">Proxy: <span class="text-secondary">ACTIVE</span> on :4000</p>
+          <p class="text-on-surface/60">Reporting: <span class="text-secondary">ENABLED</span></p>
+          <p class="text-primary-container mt-2"># fire up Claude / GPT / Ollama normally</p>
+          <div class="flex items-center gap-1"><span class="text-on-surface">_</span><span class="w-2 h-4 bg-primary-container animate-pulse"></span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Scoreboard header -->
+  <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b-4 border-primary-container pb-4">
+    <div class="space-y-1">
+      <div class="flex items-center gap-3">
+        <span class="bg-primary-container text-on-primary px-2 py-0.5 text-xs font-bold font-headline uppercase">Live</span>
+        <h2 id="scoreboard-title" class="text-4xl font-headline font-black italic tracking-tighter uppercase">Scoreboard</h2>
+      </div>
+      <p class="text-on-surface-variant font-data text-sm">Telemetry updated every 3s · provider-verified counts</p>
+    </div>
+    <div class="flex gap-2">
+      <button class="px-4 py-1.5 bg-surface-container-highest border border-outline-variant/50 text-xs font-headline font-bold uppercase tracking-widest">Season 1</button>
+      <button class="px-4 py-1.5 bg-primary-container text-on-primary text-xs font-headline font-bold uppercase tracking-widest">Global</button>
+    </div>
+  </div>
+
+  <!-- Mobile-only horizontal tab strip (the desktop sidebar is hidden <md) -->
+  <div id="mobile-tabs" class="md:hidden -mx-4 px-4 overflow-x-auto">
+    <div class="flex gap-1 min-w-max">
+      <button data-mobile-tab="all_time"    class="px-3 py-2 text-xs font-headline font-bold uppercase tracking-widest border-b-2 border-primary-container text-primary-container">Scoreboard</button>
+      <button data-mobile-tab="this_week"   class="px-3 py-2 text-xs font-headline font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant">This Week</button>
+      <button data-mobile-tab="velocity"    class="px-3 py-2 text-xs font-headline font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant">Velocity</button>
+      <button data-mobile-tab="efficiency"  class="px-3 py-2 text-xs font-headline font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant">Efficiency</button>
+      <button data-mobile-tab="local_hero"  class="px-3 py-2 text-xs font-headline font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant">Local</button>
+      <button data-mobile-tab="by_provider" class="px-3 py-2 text-xs font-headline font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant">Provider</button>
+    </div>
+  </div>
+
+  <!-- Leaderboard -->
+  <div class="space-y-1">
+    <div id="head-row" class="hidden md:grid grid-cols-12 gap-4 px-6 py-2 bg-surface-container-high text-[10px] font-headline font-black uppercase tracking-widest text-on-surface-variant">
+      <div class="col-span-1">Rank</div>
+      <div class="col-span-5">Combatant</div>
+      <div class="col-span-2 text-right">Total Tokens</div>
+      <div class="col-span-2 text-right">Providers</div>
+      <div class="col-span-2 text-right">Burn Share</div>
+    </div>
+    <div id="board" class="space-y-1"></div>
+    <div id="empty" class="hidden p-12 text-center bg-surface-container-low border border-outline-variant/20">
+      <p class="text-3xl font-headline font-black italic uppercase text-primary-container">The Arena Is Empty</p>
+      <p class="text-on-surface-variant mt-2">Be first. Install the agent, fire up your model, watch yourself crown.</p>
+    </div>
+  </div>
+
+  <!-- Bento stats -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div class="bg-surface-container-low border border-outline-variant/20 p-6">
+      <span class="text-[10px] font-headline font-black uppercase tracking-[0.2em] text-on-surface-variant">Arena Throughput</span>
+      <div class="mt-4">
+        <p class="text-4xl font-data font-bold text-primary-container tracking-tighter" id="stat-throughput">—<span class="text-sm font-normal text-on-surface-variant"> tok total</span></p>
+        <p class="text-xs text-secondary mt-1 flex items-center gap-1"><span class="material-symbols-outlined text-xs">trending_up</span> <span id="stat-throughput-delta">awaiting telemetry</span></p>
+      </div>
+    </div>
+    <div class="bg-surface-container-low border border-outline-variant/20 p-6">
+      <span class="text-[10px] font-headline font-black uppercase tracking-[0.2em] text-on-surface-variant">Combatants</span>
+      <div class="mt-4">
+        <p class="text-4xl font-data font-bold text-on-surface tracking-tighter" id="stat-users">—</p>
+        <p class="text-xs text-on-surface-variant mt-1" id="stat-users-sub">signed up and ready to burn</p>
+      </div>
+    </div>
+    <div class="bg-primary-container p-6 flex flex-col justify-between group overflow-hidden relative">
+      <div class="absolute -right-4 -bottom-4 rotate-12 opacity-10"><span class="material-symbols-outlined text-8xl">trophy</span></div>
+      <span class="text-[10px] font-headline font-black uppercase tracking-[0.2em] text-on-primary">Current Champion</span>
+      <div class="mt-4 z-10">
+        <p class="text-xl font-headline font-black uppercase leading-tight text-on-primary" id="stat-champ">—</p>
+        <p class="text-xs text-on-primary/70 mt-1 font-bold" id="stat-champ-sub">first to claim the dome takes the crown</p>
+      </div>
+    </div>
+  </div>
+
+  <footer class="text-center text-[10px] text-on-surface-variant/70 pt-8 pb-12 font-data uppercase tracking-widest space-y-2">
+    <p>prompts never leave your machine · counts come from provider usage fields · no manual input</p>
+    <p><a href="/how-it-works.html" class="text-primary-container hover:underline">how it works</a> · <a href="/install.sh" class="hover:text-on-surface">install.sh</a></p>
+  </footer>
+</div>
+</main>
+</div><!-- /#app -->
+
+<!-- Settings modal: anonymization + display name -->
+<div id="settings-backdrop" class="hidden fixed inset-0 bg-black/70 z-40"></div>
+<div id="settings-modal" class="hidden fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[92%] md:w-[480px] max-h-[90vh] overflow-y-auto bg-surface-container-low border-2 border-primary-container/40 z-50 p-6 space-y-5">
+  <div class="flex items-start justify-between">
+    <div>
+      <p class="text-[10px] font-headline font-black uppercase tracking-[0.3em] text-primary-container">Identity</p>
+      <h3 class="text-2xl font-headline font-black uppercase italic tracking-tighter mt-1">Anonymize</h3>
+    </div>
+    <button id="settings-close" class="text-on-surface-variant hover:text-primary-container">
+      <span class="material-symbols-outlined text-3xl">close</span>
+    </button>
+  </div>
+
+  <div class="space-y-3 text-sm text-on-surface-variant">
+    <p>Pick a public alias. Once set, your GitHub login and avatar are <span class="text-on-surface">never displayed</span> on the leaderboard, in profile drawers, in trash-talk attribution, or at the <code class="font-data text-primary-container">/u/&lt;name&gt;</code> URL.</p>
+    <p class="text-[11px] bg-surface-container-highest border border-outline-variant/30 p-2 rounded">2–32 chars · letters, digits, <code>.</code> <code>_</code> <code>-</code> · case-insensitive unique. Leave blank to revert to your GitHub login.</p>
+  </div>
+
+  <div class="space-y-2">
+    <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">Public name</label>
+    <input id="settings-name" type="text" maxlength="32" placeholder="berserker-7421" autocomplete="off" class="w-full bg-surface-container-lowest border border-outline-variant/30 px-3 py-2 font-data text-sm text-on-surface focus:outline-none focus:border-primary-container/60" />
+  </div>
+  <p id="settings-current" class="text-[11px] font-data text-on-surface-variant"></p>
+
+  <!-- Ghost mode -->
+  <label class="flex items-start gap-3 cursor-pointer pt-2 border-t border-outline-variant/20">
+    <input id="settings-hidden" type="checkbox" class="mt-1 accent-primary-container w-4 h-4" />
+    <span>
+      <span class="block text-sm font-headline font-bold uppercase tracking-widest text-on-surface">Ghost mode</span>
+      <span class="block text-[11px] text-on-surface-variant mt-0.5">Hide me from the leaderboard, profiles, and trash-talk. My usage is still tracked privately — I just don't appear publicly.</span>
+    </span>
+  </label>
+
+  <div class="flex items-center justify-end gap-3 pt-2">
+    <span id="settings-status" class="text-xs font-data text-on-surface-variant"></span>
+    <button id="settings-clear" class="text-xs font-headline font-bold uppercase tracking-widest text-on-surface-variant hover:text-on-surface">Clear (use GitHub name)</button>
+    <button id="settings-save" class="bg-primary-container text-on-primary-container px-5 py-2 font-headline font-bold text-xs uppercase tracking-widest hover:brightness-110 disabled:opacity-50">Save</button>
+  </div>
+</div>
+
+<!-- Backfill modal: imports historical usage via provider's admin API -->
+<div id="backfill-backdrop" class="hidden fixed inset-0 bg-black/70 z-40"></div>
+<div id="backfill-modal" class="hidden fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[92%] md:w-[560px] max-h-[90vh] overflow-y-auto bg-surface-container-low border-2 border-primary-container/40 z-50 p-6 space-y-5">
+  <div class="flex items-start justify-between">
+    <div>
+      <p class="text-[10px] font-headline font-black uppercase tracking-[0.3em] text-primary-container">Historical import</p>
+      <h3 class="text-2xl font-headline font-black uppercase italic tracking-tighter mt-1">Backfill from <span id="bf-provider-label">Anthropic</span></h3>
+    </div>
+    <button id="backfill-close" class="text-on-surface-variant hover:text-primary-container">
+      <span class="material-symbols-outlined text-3xl">close</span>
+    </button>
+  </div>
+
+  <!-- Provider sub-tabs -->
+  <div class="flex gap-1 border-b border-outline-variant/20">
+    <button data-bf-provider="anthropic" class="bf-prov-btn px-3 py-2 text-xs font-headline font-bold uppercase tracking-widest border-b-2 border-primary-container text-primary-container">Anthropic</button>
+    <button data-bf-provider="openai" class="bf-prov-btn px-3 py-2 text-xs font-headline font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant">OpenAI</button>
+  </div>
+
+  <div data-bf-help="anthropic" class="space-y-3 text-sm text-on-surface-variant">
+    <p>Pulls daily token usage from the <a href="https://docs.anthropic.com/en/api/admin-api/usage-cost/get-messages-usage-report" target="_blank" class="text-primary-container hover:underline">Anthropic Admin Usage API</a>. Includes Max-plan calls (Claude Code, claude.ai) plus any direct API usage on the same org.</p>
+    <p class="text-xs">Get a key at <span class="text-on-surface">console.anthropic.com → Settings → API Keys → Create Admin Key</span>. Format: <code class="font-data text-primary-container">sk-ant-admin01-…</code></p>
+  </div>
+  <div data-bf-help="openai" class="space-y-3 text-sm text-on-surface-variant hidden">
+    <p>Pulls daily token usage from the <a href="https://platform.openai.com/docs/api-reference/usage" target="_blank" class="text-primary-container hover:underline">OpenAI Usage API</a> for your organization, broken down by model.</p>
+    <p class="text-xs">Get a key at <span class="text-on-surface">platform.openai.com → Settings → Admin keys → Create</span>. Must have org-admin scope.</p>
+  </div>
+  <p class="text-[11px] bg-surface-container-highest border border-outline-variant/30 p-2 rounded"><span class="text-primary-container">⚠</span> The key is used once for this request and never stored. Re-running this import overwrites the previous backfill for that provider (no double-counting).</p>
+
+  <div class="space-y-2">
+    <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">Admin key</label>
+    <input id="backfill-key" type="password" autocomplete="off" placeholder="sk-ant-admin01-…" class="w-full bg-surface-container-lowest border border-outline-variant/30 px-3 py-2 font-data text-xs text-on-surface focus:outline-none focus:border-primary-container/60" />
+  </div>
+
+  <div class="space-y-2">
+    <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">Days back</label>
+    <div class="flex gap-2">
+      <button data-bf-days="30" class="bf-day-btn flex-1 px-3 py-2 text-xs font-headline font-bold uppercase border border-outline-variant/30 text-on-surface-variant hover:text-on-surface">30</button>
+      <button data-bf-days="90" class="bf-day-btn flex-1 px-3 py-2 text-xs font-headline font-bold uppercase border-2 border-primary-container text-primary-container">90</button>
+      <button data-bf-days="180" class="bf-day-btn flex-1 px-3 py-2 text-xs font-headline font-bold uppercase border border-outline-variant/30 text-on-surface-variant hover:text-on-surface">180</button>
+      <button data-bf-days="365" class="bf-day-btn flex-1 px-3 py-2 text-xs font-headline font-bold uppercase border border-outline-variant/30 text-on-surface-variant hover:text-on-surface">365</button>
+    </div>
+  </div>
+
+  <div class="flex items-center justify-end gap-3 pt-2">
+    <span id="backfill-status" class="text-xs font-data text-on-surface-variant"></span>
+    <button id="backfill-run" class="bg-primary-container text-on-primary-container px-5 py-2 font-headline font-bold text-xs uppercase tracking-widest hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed">Import</button>
+  </div>
+</div>
+
+<!-- Profile drawer (slides in from right when a combatant row is clicked) -->
+<div id="drawer-backdrop" class="hidden fixed inset-0 bg-black/60 z-40 transition-opacity"></div>
+<aside id="drawer" class="hidden fixed top-0 right-0 h-full w-full md:w-[520px] bg-surface-container-low border-l-2 border-primary-container/40 z-50 overflow-y-auto transform transition-transform translate-x-full">
+  <div class="p-6 space-y-6">
+    <div class="flex items-start justify-between">
+      <div class="flex items-center gap-4">
+        <img id="drawer-avatar" class="w-14 h-14 border-2 border-primary-container/40 object-cover" alt="" />
+        <div>
+          <p id="drawer-login" class="font-headline text-2xl font-black uppercase tracking-tighter">—</p>
+          <p id="drawer-since" class="text-[10px] font-data text-on-surface-variant uppercase tracking-widest">—</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="drawer-share" title="Copy share link" class="text-on-surface-variant hover:text-primary-container">
+          <span class="material-symbols-outlined text-2xl">link</span>
+        </button>
+        <button id="drawer-close" class="text-on-surface-variant hover:text-primary-container">
+          <span class="material-symbols-outlined text-3xl">close</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Lifetime number -->
+    <div class="bg-surface-container-highest p-5 border border-primary-container/20">
+      <p class="text-[10px] font-headline font-black uppercase tracking-[0.2em] text-primary-container">Lifetime Burn</p>
+      <p id="drawer-lifetime" class="font-data font-bold text-5xl tracking-tighter mt-2">—</p>
+      <p id="drawer-lifetime-sub" class="text-xs font-data text-on-surface-variant mt-1">— in · — out · $—</p>
+    </div>
+
+    <!-- Ranks -->
+    <div class="grid grid-cols-3 gap-2">
+      <div class="bg-surface-container p-3 border border-outline-variant/20">
+        <p class="text-[9px] font-headline font-black uppercase tracking-widest text-on-surface-variant">All Time</p>
+        <p id="drawer-rank-at" class="font-headline italic font-black text-2xl text-primary-container mt-1">—</p>
+      </div>
+      <div class="bg-surface-container p-3 border border-outline-variant/20">
+        <p class="text-[9px] font-headline font-black uppercase tracking-widest text-on-surface-variant">This Week</p>
+        <p id="drawer-rank-wk" class="font-headline italic font-black text-2xl text-primary-container mt-1">—</p>
+      </div>
+      <div class="bg-surface-container p-3 border border-outline-variant/20">
+        <p class="text-[9px] font-headline font-black uppercase tracking-widest text-on-surface-variant">Local Hero</p>
+        <p id="drawer-rank-lh" class="font-headline italic font-black text-2xl text-primary-container mt-1">—</p>
+      </div>
+    </div>
+
+    <!-- 30-day chart -->
+    <div>
+      <p class="text-[10px] font-headline font-black uppercase tracking-[0.2em] text-on-surface-variant mb-2">Last 30 Days · Stacked by Provider</p>
+      <svg id="drawer-chart" width="100%" height="120" viewBox="0 0 480 120" preserveAspectRatio="none" class="bg-surface-container-highest border border-outline-variant/10"></svg>
+      <p id="drawer-chart-empty" class="hidden text-center text-xs text-on-surface-variant py-4">No activity in the last 30 days.</p>
+    </div>
+
+    <!-- Model breakdown -->
+    <div>
+      <p class="text-[10px] font-headline font-black uppercase tracking-[0.2em] text-on-surface-variant mb-2">Top Models</p>
+      <div id="drawer-models" class="space-y-1.5"></div>
+    </div>
+
+    <!-- Trash talk (only visible when signed in AND viewing someone else) -->
+    <div id="drawer-trash" class="hidden space-y-2 pt-2 border-t border-outline-variant/20">
+      <p class="text-[10px] font-headline font-black uppercase tracking-[0.2em] text-on-surface-variant">Talk smack <span class="font-normal normal-case text-on-surface-variant/70">— 140 chars · displays for 30 min</span></p>
+      <div class="flex gap-2">
+        <input id="drawer-trash-input" maxlength="140" placeholder="say something they'll regret reading…" class="flex-1 bg-surface-container-lowest border border-outline-variant/30 px-3 py-2 font-data text-xs text-on-surface focus:outline-none focus:border-primary-container/60" />
+        <button id="drawer-trash-send" class="bg-primary-container text-on-primary-container px-3 py-2 font-headline font-bold text-xs uppercase tracking-widest hover:brightness-110 disabled:opacity-50">Send</button>
+      </div>
+      <p id="drawer-trash-status" class="text-[10px] font-data text-on-surface-variant"></p>
+    </div>
+  </div>
+</aside>
+
+<!-- Row template: cloned per leaderboard entry -->
+<template id="row-tpl">
+  <div class="group relative grid grid-cols-8 md:grid-cols-12 items-center gap-3 md:gap-4 px-4 md:px-6 py-3 md:py-4 bg-surface-container-low hover:bg-surface-container-highest transition-all duration-300 border-l-8 border-outline-variant/30">
+    <div class="col-span-1 font-headline font-black italic text-on-surface-variant" data-rank></div>
+    <div class="col-span-4 md:col-span-5 flex items-center gap-3 md:gap-4 min-w-0">
+      <img class="w-8 h-8 md:w-10 md:h-10 border border-outline-variant/30 object-cover flex-shrink-0" data-avatar alt=""/>
+      <div class="min-w-0">
+        <p class="font-headline font-bold uppercase tracking-tighter truncate text-sm md:text-base" data-login></p>
+        <p class="text-[10px] font-data text-secondary uppercase truncate" data-sub>—</p>
+      </div>
+    </div>
+    <div class="col-span-3 md:col-span-2 text-right">
+      <p class="font-data font-bold tracking-tighter text-on-surface text-sm md:text-base" data-total></p>
+      <p class="text-[10px] font-data text-on-surface-variant" data-breakdown></p>
+    </div>
+    <div class="hidden md:flex md:col-span-2 justify-end gap-1 flex-wrap" data-providers></div>
+    <div class="hidden md:block md:col-span-2 pl-4">
+      <div class="flex justify-between items-center mb-1">
+        <svg data-spark width="60" height="14" class="opacity-70" viewBox="0 0 60 14" preserveAspectRatio="none"></svg>
+        <span class="text-[10px] font-headline font-bold" data-share-label></span>
+      </div>
+      <div class="h-3 bg-black/40 border border-outline-variant/30 p-0.5">
+        <div class="h-full bg-on-surface-variant/50" data-bar style="width:0%"></div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+const PROVIDER_COLORS = {
+  openai:    'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+  anthropic: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+  google:    'bg-blue-500/20 text-blue-300 border-blue-500/30',
+  ollama:    'bg-purple-500/20 text-purple-300 border-purple-500/30',
+};
+const fmt = new Intl.NumberFormat();
+const fmtCompact = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 });
+const esc = (s) => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+let state = { all_time: [], this_week: [], local_hero: [], by_provider: [], velocity: [], efficiency: [], sparklines: {}, events_per_min: 0 };
+let active = 'all_time';
+let userProviders = {}; // login -> { provider: tokens }
+let eventsThisMinute = 0;
+const PROVIDER_STROKE = { openai: '#10b981', anthropic: '#f59e0b', google: '#3b82f6', ollama: '#a855f7' };
+
+// ────── Render ──────
+
+// Returns the metric we sort/display for the given tab on a row.
+// Each tab stores rows with different shapes from the API.
+function rowMetric(row, tab) {
+  switch (tab) {
+    case 'velocity':   return Number(row.tokens_per_hour) || 0;
+    case 'efficiency': return Number(row.ratio_pct) || 0;
+    default:           return Number(row.total) || 0;
+  }
+}
+function metricLabel(row, tab) {
+  switch (tab) {
+    case 'velocity':   return fmt.format(rowMetric(row, tab)) + ' tok/hr';
+    case 'efficiency': return rowMetric(row, tab).toFixed(1) + '%';
+    default:           return fmt.format(rowMetric(row, tab));
+  }
+}
+function metricSub(row, tab) {
+  if (tab === 'velocity')   return fmtCompact.format(Number(row.total_tokens) || 0) + ' tok over ' + (row.active_hours || 0) + 'h active';
+  if (tab === 'efficiency') return fmtCompact.format(row.input_tokens || 0) + ' in · ' + fmtCompact.format(row.output_tokens || 0) + ' out';
+  if (row.total_input != null) return fmtCompact.format(row.total_input) + ' in · ' + fmtCompact.format(row.total_output) + ' out';
+  return '';
+}
+
+// Draw a 24-bucket sparkline as scaled SVG bars. Empty data → faint dashes.
+function drawSpark(svg, buckets) {
+  svg.innerHTML = '';
+  const W = 60, H = 14, n = 24, max = Math.max(1, ...(buckets || [0]));
+  const bw = W / n;
+  if (!buckets || buckets.every(v => !v)) {
+    const ns = 'http://www.w3.org/2000/svg';
+    const line = document.createElementNS(ns, 'line');
+    line.setAttribute('x1', '0'); line.setAttribute('x2', String(W));
+    line.setAttribute('y1', String(H - 1)); line.setAttribute('y2', String(H - 1));
+    line.setAttribute('stroke', '#facc15'); line.setAttribute('stroke-opacity', '0.15');
+    line.setAttribute('stroke-dasharray', '2 3');
+    svg.appendChild(line);
+    return;
+  }
+  const ns = 'http://www.w3.org/2000/svg';
+  for (let i = 0; i < n; i++) {
+    const v = buckets[i] || 0;
+    if (!v) continue;
+    const h = Math.max(1, (v / max) * (H - 1));
+    const rect = document.createElementNS(ns, 'rect');
+    rect.setAttribute('x', String(i * bw + 0.5));
+    rect.setAttribute('y', String(H - h));
+    rect.setAttribute('width', String(Math.max(1, bw - 1)));
+    rect.setAttribute('height', String(h));
+    rect.setAttribute('fill', '#facc15');
+    svg.appendChild(rect);
+  }
+}
+
+function render() {
+  const board = document.getElementById('board');
+  const empty = document.getElementById('empty');
+  const headRow = document.getElementById('head-row');
+  board.innerHTML = '';
+
+  if (active === 'by_provider') {
+    headRow.style.display = 'none';
+    empty.classList.add('hidden');
+    const groups = {};
+    for (const r of (state.by_provider || [])) (groups[r.provider] ||= []).push(r);
+    const provCount = Object.keys(groups).length;
+    if (provCount === 0) { empty.classList.remove('hidden'); return; }
+
+    const wrap = document.createElement('div');
+    wrap.className = 'space-y-3';
+
+    if (provCount === 1) {
+      const note = document.createElement('div');
+      note.className = 'bg-primary-container/5 border border-primary-container/20 p-3 text-xs text-on-surface-variant text-center';
+      note.innerHTML = 'Only <span class="text-primary-container font-bold">' + Object.keys(groups)[0] + '</span> traffic so far. Bring an OpenAI / Google / Ollama user into the dome to populate the rest.';
+      wrap.appendChild(note);
+    }
+
+    const grid = document.createElement('div');
+    grid.className = 'grid md:grid-cols-2 gap-4';
+    for (const [prov, list] of Object.entries(groups)) {
+      const color = PROVIDER_COLORS[prov] || 'bg-gray-500/20 text-gray-300';
+      const provTotal = list.reduce((s, r) => s + (Number(r.total) || 0), 0);
+      const top = Math.max(1, ...list.map(r => Number(r.total) || 0));
+      const col = document.createElement('div');
+      col.className = 'bg-surface-container-low border border-outline-variant/20 p-4';
+      col.innerHTML = '<h3 class="font-headline font-black uppercase mb-3 flex items-center justify-between gap-2">'
+        + '<span class="px-2 py-0.5 text-[10px] border ' + color + '">' + esc(prov) + '</span>'
+        + '<span class="text-[10px] font-data text-on-surface-variant">' + fmtCompact.format(provTotal) + ' tok</span>'
+        + '</h3>';
+      const ol = document.createElement('ol');
+      ol.className = 'space-y-1.5 font-data text-sm';
+      list.slice(0, 10).forEach((r, i) => {
+        const v = Number(r.total) || 0;
+        const pct = Math.round((v / top) * 100);
+        const li = document.createElement('li');
+        li.className = 'flex items-center gap-3 cursor-pointer hover:bg-surface-container/40 px-1 py-0.5';
+        li.dataset.login = r.login;
+        li.innerHTML = '<span class="text-on-surface-variant w-5 text-right">' + (i+1) + '</span>'
+          + '<span class="flex-1 text-on-surface truncate">' + esc(r.login) + '</span>'
+          + '<div class="w-24 h-2 bg-black/40 border border-outline-variant/20"><div class="h-full bg-primary-container/70" style="width:' + pct + '%"></div></div>'
+          + '<span class="font-bold tabular-nums w-16 text-right text-on-surface">' + fmt.format(v) + '</span>';
+        li.addEventListener('click', () => openProfile(r.login));
+        ol.appendChild(li);
+      });
+      col.appendChild(ol);
+      grid.appendChild(col);
+    }
+    wrap.appendChild(grid);
+    board.appendChild(wrap);
+    return;
+  }
+
+  headRow.style.display = '';
+  const rows = state[active] || [];
+  if (rows.length === 0) { empty.classList.remove('hidden'); return; }
+  empty.classList.add('hidden');
+
+  const tpl = document.getElementById('row-tpl');
+  const topShare = rows[0] ? (rowMetric(rows[0], active) || 1) : 1;
+  rows.forEach((r, i) => {
+    const node = tpl.content.firstElementChild.cloneNode(true);
+    node.dataset.login = r.login;
+    node.classList.add('cursor-pointer');
+    node.addEventListener('click', () => openProfile(r.login));
+    if (i === 0) {
+      node.classList.remove('border-outline-variant/30');
+      node.classList.add('border-primary-container', 'py-6');
+      const rankEl = node.querySelector('[data-rank]');
+      rankEl.className = 'col-span-1 font-headline font-black italic text-4xl text-primary-container';
+    }
+    node.querySelector('[data-rank]').textContent = String(i + 1).padStart(2, '0');
+    const avatar = node.querySelector('[data-avatar]');
+    avatar.src = avatarFor(r);
+    avatar.alt = r.login;
+    node.querySelector('[data-login]').textContent = r.login;
+    node.querySelector('[data-sub]').textContent = (active === 'velocity' || active === 'efficiency')
+      ? metricSub(r, active)
+      : ('Active · total: ' + fmtCompact.format(rowMetric(r, active) || 0));
+    node.querySelector('[data-total]').textContent = metricLabel(r, active);
+    node.querySelector('[data-breakdown]').textContent = (active === 'velocity' || active === 'efficiency') ? '' : metricSub(r, active);
+
+    // provider chips
+    const provBox = node.querySelector('[data-providers]');
+    const provs = userProviders[r.login] || {};
+    const sortedProvs = Object.entries(provs).sort((a,b)=>b[1]-a[1]).slice(0,3);
+    if (sortedProvs.length === 0) {
+      provBox.innerHTML = '<span class="text-[10px] text-on-surface-variant/40 font-data">—</span>';
+    } else {
+      for (const [p] of sortedProvs) {
+        const chip = document.createElement('span');
+        chip.className = 'text-[9px] px-1.5 py-0.5 border uppercase font-data font-bold ' + (PROVIDER_COLORS[p] || 'bg-gray-500/20 text-gray-300');
+        chip.textContent = p;
+        provBox.appendChild(chip);
+      }
+    }
+
+    // sparkline (last 24h hourly buckets) — same data on every tab for consistency
+    drawSpark(node.querySelector('[data-spark]'), state.sparklines && state.sparklines[r.login]);
+
+    // Trash-talk bubble (if anyone has roasted this combatant in last 30min)
+    const tt = state.trash_talk && state.trash_talk[r.login];
+    if (tt) {
+      const sub = node.querySelector('[data-sub]');
+      if (sub) {
+        const bubble = document.createElement('span');
+        bubble.className = 'inline-flex items-center ml-2 px-2 py-0.5 bg-primary-container/15 border border-primary-container/40 text-primary-container text-[10px] font-data normal-case rounded';
+        bubble.title = 'from @' + tt.from;
+        bubble.textContent = '“' + tt.message + '”';
+        sub.appendChild(bubble);
+      }
+    }
+
+    // burn share / metric share
+    const share = Math.round(((rowMetric(r, active) || 0) / topShare) * 100);
+    node.querySelector('[data-share-label]').textContent = share + '%';
+    const bar = node.querySelector('[data-bar]');
+    bar.style.width = share + '%';
+    if (i === 0) bar.className = 'h-full bg-primary-container';
+    document.getElementById('board').appendChild(node);
+  });
+}
+
+function updateBento() {
+  const rows = state.all_time || [];
+  const total = rows.reduce((s, r) => s + (Number(r.total) || 0), 0);
+  document.getElementById('stat-throughput').innerHTML =
+    (total ? fmtCompact.format(total) : '0') + '<span class="text-sm font-normal text-on-surface-variant"> tok total</span>';
+  document.getElementById('stat-throughput-delta').textContent =
+    eventsThisMinute ? (eventsThisMinute + ' events/min') : 'awaiting telemetry';
+  document.getElementById('stat-users').textContent = rows.length ? fmt.format(rows.length) : '—';
+  // Lonely-dome copy: until ≥3 combatants the field looks bleak. Reframe.
+  const usersSub = document.getElementById('stat-users-sub');
+  if (usersSub) {
+    if (rows.length === 0)      usersSub.textContent = 'no one in the dome — be first';
+    else if (rows.length === 1) usersSub.textContent = 'lonely. send a friend the link';
+    else if (rows.length === 2) usersSub.textContent = 'a duel. who will break the tie?';
+    else                        usersSub.textContent = 'signed up and ready to burn';
+  }
+  if (rows[0]) {
+    document.getElementById('stat-champ').textContent = '@' + rows[0].login;
+    document.getElementById('stat-champ-sub').textContent =
+      rows.length === 1
+        ? 'unchallenged · ' + fmt.format(rows[0].total) + ' tokens burned'
+        : fmt.format(rows[0].total) + ' tokens burned';
+  }
+}
+
+const SCOREBOARD_TITLES = {
+  all_time: 'Scoreboard',
+  this_week: 'This Week',
+  velocity: 'Velocity',
+  efficiency: 'Efficiency',
+  local_hero: 'Local Heroes',
+  by_provider: 'By Provider',
+};
+function setActive(tab) {
+  active = tab;
+  document.getElementById('scoreboard-title').textContent = SCOREBOARD_TITLES[tab];
+  document.querySelectorAll('.tab-link').forEach(a => {
+    if (a.dataset.tab === tab) {
+      a.className = 'tab-link flex items-center gap-3 px-6 py-3 text-[#facc15] bg-primary-container/10 font-bold border-r-4 border-[#facc15]';
+    } else {
+      a.className = 'tab-link flex items-center gap-3 px-6 py-3 text-gray-500 hover:text-[#facc15]/70 hover:bg-[#1C1C21]';
+    }
+  });
+  render();
+}
+
+// ────── Data ──────
+// Dome scope: '' = global, otherwise a slug. Persisted in URL ?dome= and localStorage.
+let domeScope = (() => {
+  const url = new URLSearchParams(location.search).get('dome');
+  return url || localStorage.getItem('tokendome_scope') || '';
+})();
+let domesIBelongTo = []; // populated by fetchDomes()
+function setDomeScope(slug) {
+  domeScope = slug || '';
+  if (domeScope) localStorage.setItem('tokendome_scope', domeScope);
+  else localStorage.removeItem('tokendome_scope');
+  const u = new URL(location.href);
+  if (domeScope) u.searchParams.set('dome', domeScope); else u.searchParams.delete('dome');
+  history.replaceState({}, '', u);
+  renderDomeSwitcher();
+  fetchBoard();
+}
+function renderDomeSwitcher() {
+  const label = document.getElementById('dome-switcher-label');
+  if (!label) return;
+  const found = domesIBelongTo.find(d => d.slug === domeScope);
+  label.textContent = found ? found.name : 'Global';
+  document.querySelectorAll('.dome-menu-item').forEach(b => {
+    b.classList.toggle('bg-primary-container/20', b.dataset.domePick === domeScope);
+  });
+}
+async function fetchDomes() {
+  try {
+    const r = await fetch('/api/domes').then(r => r.json());
+    if (!r.domes) return;
+    domesIBelongTo = r.domes;
+    const list = document.getElementById('dome-menu-list');
+    list.innerHTML = '';
+    for (const d of domesIBelongTo) {
+      const b = document.createElement('button');
+      b.className = 'dome-menu-item w-full text-left px-3 py-2 text-xs font-headline font-bold uppercase tracking-widest hover:bg-primary-container/10 flex items-center justify-between gap-2';
+      b.dataset.domePick = d.slug;
+      const subtitle = d.invite_code ? '<span class="text-[10px] font-data text-on-surface-variant">code: ' + d.invite_code + '</span>' : '<span class="text-[10px] font-data text-on-surface-variant">' + d.member_count + '</span>';
+      b.innerHTML = '<span class="flex items-center gap-2"><span class="material-symbols-outlined text-sm">groups</span><span>' + esc(d.name) + '</span></span>' + subtitle;
+      b.addEventListener('click', () => { setDomeScope(d.slug); document.getElementById('dome-menu').classList.add('hidden'); });
+      list.appendChild(b);
+    }
+    renderDomeSwitcher();
+  } catch {}
+}
+
+async function fetchBoard() {
+  const lburl = '/api/leaderboard' + (domeScope ? '?dome=' + encodeURIComponent(domeScope) : '');
+  const r = await fetch(lburl).then(r => r.json());
+  if (r.error) {
+    if (domeScope) { domeScope = ''; localStorage.removeItem('tokendome_scope'); return fetchBoard(); }
+  }
+  state = r;
+  // Index per-user provider breakdown for chips
+  userProviders = {};
+  for (const row of (r.by_provider || [])) {
+    (userProviders[row.login] ||= {})[row.provider] = Number(row.total) || 0;
+  }
+  // Trust the server's events/min count over the client-side flash counter
+  // (the local one only sees rows that change, missing burst-of-tiny-events).
+  if (typeof r.events_per_min === 'number') eventsThisMinute = r.events_per_min;
+  render();
+  updateBento();
+  renderLanding();
+  updateLivePill();
+}
+
+function updateLivePill() {
+  // Header pill (id=rate) and the landing-hero pill (id=hero-live-pill)
+  const live = (eventsThisMinute || 0) > 0;
+  const txt = live ? 'LIVE · ' + eventsThisMinute + ' ev/min' : 'IDLE';
+  const head = document.getElementById('rate');
+  if (head) head.textContent = txt;
+  const hero = document.getElementById('hero-live-pill');
+  if (hero) hero.textContent = live ? 'LIVE · ' + eventsThisMinute + ' ev/min' : 'STANDBY';
+}
+
+// Snapshot of the currently signed-in user's login so the drawer + trash-talk
+// can decide whether to show "talk smack" to viewers looking at someone else.
+let me = null;
+async function fetchMe() {
+  const m = await fetch('/api/me').then(r => r.json());
+  me = m.authenticated ? m : null;
+  const landing = document.getElementById('landing');
+  const app = document.getElementById('app');
+  if (!m.authenticated) {
+    landing.classList.remove('hidden');
+    app.classList.add('hidden');
+    return;
+  }
+  landing.classList.add('hidden');
+  app.classList.remove('hidden');
+  const box = document.getElementById('authbox');
+  // Header chip uses the public handle (display_name or login) — no GitHub leak.
+  box.innerHTML = '<div class="flex items-center gap-2">'
+    + '<img src="' + esc(avatarFor({ login: m.login, avatar_url: m.avatar_url })) + '" class="w-8 h-8 border border-primary-container/30"/>'
+    + '<span class="font-headline text-sm font-bold">@' + esc(m.login) + '</span>'
+    + '<form method="POST" action="/api/auth/logout"><button class="text-[10px] text-on-surface-variant underline ml-2">sign out</button></form>'
+    + '</div>';
+  const setup = document.getElementById('setup');
+  setup.style.display = 'flex';
+  document.getElementById('settings-open')?.classList.remove('hidden');
+  document.getElementById('dome-switcher')?.classList.remove('hidden');
+  fetchDomes();
+  // Auto-join via shared invite link: ?dome=slug&invite=code
+  const params = new URLSearchParams(location.search);
+  const inv = params.get('invite');
+  const dscope = params.get('dome');
+  if (inv && dscope) {
+    fetch('/api/domes?join=1', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ invite_code: inv }) })
+      .then(r => r.json())
+      .then(j => {
+        if (j.ok) { setDomeScope(j.slug); fetchDomes(); }
+        // strip invite from URL after first attempt either way
+        const u = new URL(location.href);
+        u.searchParams.delete('invite');
+        history.replaceState({}, '', u);
+      });
+  }
+  document.getElementById('token').textContent = m.agent_token;
+  document.getElementById('install-cmd').textContent = 'curl -fsSL ' + location.origin + '/install.sh | bash';
+  document.getElementById('sdk-install-cmd').textContent = 'npm i ' + location.origin + '/tokendome-anthropic.tgz';
+  document.getElementById('sdk-env').textContent = 'export TOKENDOME_TOKEN=' + m.agent_token;
+  document.getElementById('oai-install-cmd').textContent = 'npm i ' + location.origin + '/tokendome-openai.tgz';
+  document.getElementById('oai-env').textContent = 'export TOKENDOME_TOKEN=' + m.agent_token;
+  document.getElementById('cli-login').textContent = 'tokendome login ' + m.agent_token + ' && tokendome start';
+}
+
+// Setup-card path tabs (data-driven across N panels)
+(() => {
+  const tabs = [...document.querySelectorAll('[data-setup-tab]')];
+  const panels = [...document.querySelectorAll('[data-setup-panel]')];
+  if (!tabs.length) return;
+  function show(which) {
+    panels.forEach(p => p.classList.toggle('hidden', p.dataset.setupPanel !== which));
+    tabs.forEach(t => {
+      const on = t.dataset.setupTab === which;
+      t.classList.toggle('border-primary-container', on);
+      t.classList.toggle('text-primary-container', on);
+      t.classList.toggle('border-transparent', !on);
+      t.classList.toggle('text-on-surface-variant', !on);
+    });
+  }
+  tabs.forEach(t => t.addEventListener('click', () => show(t.dataset.setupTab)));
+})();
+
+// Landing view renderer — shows top 5 combatants + hero stats
+const LANDING_ROW_BG = ['bg-[#F8FAFC]', 'bg-[#F8FAFC]/95', 'bg-[#F8FAFC]/90', 'bg-[#F8FAFC]/85', 'bg-[#F8FAFC]/80'];
+const LANDING_RANK_OPACITY = ['', 'opacity-50', 'opacity-30', 'opacity-20', 'opacity-10'];
+function renderLanding() {
+  // Always populate — even when the landing div is currently hidden, fetchMe
+  // may un-hide it AFTER fetchBoard resolves, and we don't want to leave the
+  // hero blank in that race.
+  const rows = state.all_time || [];
+  const total = rows.reduce((s, r) => s + (Number(r.total) || 0), 0);
+  document.getElementById('hero-throughput').textContent = total ? fmt.format(total) : '0';
+  document.getElementById('hero-combatants').textContent = fmt.format(rows.length);
+  document.getElementById('hero-events-min').textContent = eventsThisMinute || '0';
+  document.getElementById('hero-live-pill').textContent = eventsThisMinute ? 'LIVE NOW' : 'STANDBY';
+  // Provider variety on the landing bento — count distinct providers seen
+  const provs = new Set();
+  for (const row of (state.by_provider || [])) provs.add(row.provider);
+  const provEl = document.getElementById('hero-providers');
+  if (provEl) {
+    if (provs.size === 0) provEl.textContent = 'awaiting first';
+    else provEl.textContent = [...provs].slice(0, 4).join(' · ');
+  }
+  if (rows[0]) {
+    document.getElementById('hero-mvp-name').textContent = '@' + rows[0].login.toUpperCase();
+    document.getElementById('hero-mvp-burn').textContent = fmtCompact.format(rows[0].total || 0);
+  }
+  const coliseum = document.getElementById('hero-rows');
+  const empty = document.getElementById('hero-empty');
+  coliseum.innerHTML = '';
+  if (rows.length === 0) { empty.classList.remove('hidden'); return; }
+  empty.classList.add('hidden');
+  rows.slice(0, 5).forEach((r, i) => {
+    const primaryProvider = Object.entries(userProviders[r.login] || {}).sort((a,b)=>b[1]-a[1])[0];
+    const engine = primaryProvider ? primaryProvider[0].toUpperCase() : '—';
+    const div = document.createElement('div');
+    div.className = 'grid grid-cols-12 gap-4 px-8 py-6 items-center ' + LANDING_ROW_BG[i] + ' text-[#131318] group border-b border-surface-container-lowest';
+    div.dataset.login = r.login;
+    div.innerHTML =
+      '<div class="col-span-1 font-headline font-black text-4xl italic leading-none ' + LANDING_RANK_OPACITY[i] + '">' + String(i+1).padStart(2,'0') + '</div>'
+      + '<div class="col-span-4 md:col-span-5 flex items-center gap-4">'
+        + '<img src="' + esc(avatarFor(r)) + '" class="w-12 h-12 rounded-lg bg-[#131318] object-cover"/>'
+        + '<div>'
+          + '<div class="font-headline font-black text-lg leading-none uppercase">' + esc(r.login) + '</div>'
+          + '<div class="text-[10px] font-data text-outline-variant font-bold uppercase">' + fmtCompact.format(r.total || 0) + ' tokens</div>'
+        + '</div>'
+      + '</div>'
+      + '<div class="col-span-3 md:col-span-3"><span class="px-3 py-1 bg-[#131318] text-primary-container text-[10px] font-black font-headline uppercase tracking-widest rounded-lg">' + esc(engine) + '</span></div>'
+      + '<div class="col-span-3 md:col-span-2 text-right font-data text-2xl font-bold tracking-tight">' + fmtCompact.format(r.total || 0) + '</div>'
+      + '<div class="col-span-1 flex justify-center">'
+        + '<div class="relative flex h-3 w-3">'
+          + '<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-secondary opacity-75"></span>'
+          + '<span class="relative inline-flex rounded-full h-3 w-3 bg-secondary"></span>'
+        + '</div>'
+      + '</div>';
+    coliseum.appendChild(div);
+  });
+}
+
+// ────── Copy buttons ──────
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.copy-btn');
+  if (!btn) return;
+  const target = document.getElementById(btn.dataset.copy);
+  if (!target) return;
+  navigator.clipboard.writeText(target.textContent.trim());
+  const icon = btn.querySelector('.material-symbols-outlined');
+  const prev = icon.textContent;
+  icon.textContent = 'check';
+  setTimeout(() => { icon.textContent = prev; }, 900);
+});
+document.querySelectorAll('.tab-link').forEach(a => {
+  a.addEventListener('click', (e) => { e.preventDefault(); setActive(a.dataset.tab); });
+});
+
+// ────── Live updates ──────
+let evCounterReset;
+function bumpEventRate() {
+  eventsThisMinute++;
+  document.getElementById('rate').textContent = eventsThisMinute + ' events/min';
+  clearTimeout(evCounterReset);
+  evCounterReset = setTimeout(() => { eventsThisMinute = 0; document.getElementById('rate').textContent = 'idle'; }, 60_000);
+}
+// Confetti — N pieces drop from the row's top edge in mixed colors. Cheap.
+const CONFETTI_COLORS = ['#facc15', '#10b981', '#3b82f6', '#a855f7', '#f59e0b', '#ef4444'];
+function confettiBurst(row, intensity) {
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+  const rect = row.getBoundingClientRect();
+  const layer = document.createElement('div');
+  layer.style.position = 'fixed';
+  layer.style.left = rect.left + 'px';
+  layer.style.top = rect.top + 'px';
+  layer.style.width = rect.width + 'px';
+  layer.style.height = rect.height + 'px';
+  layer.style.pointerEvents = 'none';
+  layer.style.zIndex = '60';
+  document.body.appendChild(layer);
+  const N = Math.min(60, 20 + intensity * 8);
+  for (let i = 0; i < N; i++) {
+    const p = document.createElement('div');
+    p.className = 'confetti-piece';
+    p.style.left = Math.random() * rect.width + 'px';
+    p.style.top = '0px';
+    p.style.background = CONFETTI_COLORS[i % CONFETTI_COLORS.length];
+    p.style.setProperty('--cx', (Math.random() * 200 - 100) + 'px');
+    p.style.setProperty('--cy', (60 + Math.random() * 80) + 'px');
+    p.style.setProperty('--cr', (Math.random() * 720 - 360) + 'deg');
+    p.style.animationDelay = (Math.random() * 0.15) + 's';
+    layer.appendChild(p);
+  }
+  setTimeout(() => layer.remove(), 1700);
+}
+
+// ────── Live (polling) ──────
+// Vercel serverless: no WebSockets. Poll the board every 3s and flash rows
+// whose total changed since the last snapshot. Confetti when a user passes
+// someone above them.
+let lastSnapshot = {};
+let lastRanks = {};
+async function livePoll() {
+  try {
+    await fetchBoard();
+    const rate = document.getElementById('rate');
+    let any = false;
+    const ranks = {};
+    (state.all_time || []).forEach((r, i) => { ranks[r.login] = i + 1; });
+    for (const r of (state.all_time || [])) {
+      const prev = lastSnapshot[r.login];
+      if (prev != null && r.total > prev) {
+        any = true;
+        bumpEventRate();
+        const row = document.querySelector('#board > [data-login="' + CSS.escape(r.login) + '"]');
+        if (row) row.classList.add('flash');
+        setTimeout(() => row && row.classList.remove('flash'), 1300);
+      }
+      const prevRank = lastRanks[r.login];
+      const newRank = ranks[r.login];
+      if (prevRank && newRank && newRank < prevRank) {
+        // Overtake! N steps up.
+        const row = document.querySelector('#board > [data-login="' + CSS.escape(r.login) + '"]');
+        if (row) confettiBurst(row, prevRank - newRank);
+      }
+      lastSnapshot[r.login] = Number(r.total) || 0;
+    }
+    lastRanks = ranks;
+    if (rate && rate.textContent === 'connecting…') rate.textContent = any ? 'live' : 'idle';
+  } catch {
+    document.getElementById('rate').textContent = 'offline';
+  }
+}
+
+// ────── Profile drawer ──────
+async function openProfile(login) {
+  const drawer = document.getElementById('drawer');
+  const backdrop = document.getElementById('drawer-backdrop');
+  drawer.classList.remove('hidden');
+  backdrop.classList.remove('hidden');
+  // animate in next frame
+  requestAnimationFrame(() => {
+    drawer.classList.remove('translate-x-full');
+    backdrop.classList.add('opacity-100');
+  });
+  // Loading state
+  document.getElementById('drawer-login').textContent = login.toUpperCase();
+  document.getElementById('drawer-since').textContent = 'Loading…';
+  document.getElementById('drawer-lifetime').textContent = '—';
+  document.getElementById('drawer-models').innerHTML = '';
+  document.getElementById('drawer-chart').innerHTML = '';
+
+  try {
+    const p = await fetch('/api/profile/' + encodeURIComponent(login)).then(r => r.json());
+    if (p.error) throw new Error(p.error);
+    document.getElementById('drawer-avatar').src = avatarFor(p);
+    document.getElementById('drawer-login').textContent = p.login.toUpperCase();
+    const since = p.created_at ? new Date(p.created_at) : null;
+    document.getElementById('drawer-since').textContent = since
+      ? 'Combatant since ' + since.toISOString().slice(0, 10)
+      : '';
+    document.getElementById('drawer-lifetime').textContent = fmt.format(p.lifetime.total);
+    document.getElementById('drawer-lifetime-sub').textContent =
+      fmtCompact.format(p.lifetime.total_input) + ' in · ' +
+      fmtCompact.format(p.lifetime.total_output) + ' out · $' +
+      ((p.lifetime.total_cost_cents || 0) / 100).toFixed(2);
+    const fmtRank = r => r ? '#' + r : '—';
+    document.getElementById('drawer-rank-at').textContent = fmtRank(p.ranks?.all_time);
+    document.getElementById('drawer-rank-wk').textContent = fmtRank(p.ranks?.this_week);
+    document.getElementById('drawer-rank-lh').textContent = fmtRank(p.ranks?.local_hero);
+
+    drawProfileChart(p.series_30d || []);
+    drawProfileModels(p.by_model || []);
+
+    // Only show trash-talk to signed-in viewers looking at someone else
+    const trash = document.getElementById('drawer-trash');
+    if (trash) {
+      const canTalk = !!me && me.login && me.login.toLowerCase() !== p.login.toLowerCase();
+      trash.classList.toggle('hidden', !canTalk);
+    }
+  } catch (e) {
+    document.getElementById('drawer-since').textContent = 'Failed to load profile.';
+  }
+}
+function closeProfile() {
+  const drawer = document.getElementById('drawer');
+  const backdrop = document.getElementById('drawer-backdrop');
+  drawer.classList.add('translate-x-full');
+  setTimeout(() => { drawer.classList.add('hidden'); backdrop.classList.add('hidden'); }, 200);
+}
+
+// Pivot {day_bucket, provider, input, output} rows into a stacked-bar chart.
+function drawProfileChart(rows) {
+  const svg = document.getElementById('drawer-chart');
+  const empty = document.getElementById('drawer-chart-empty');
+  svg.innerHTML = '';
+  if (!rows.length) { empty.classList.remove('hidden'); svg.classList.add('hidden'); return; }
+  empty.classList.add('hidden'); svg.classList.remove('hidden');
+
+  const W = 480, H = 120, PAD = 4;
+  const today = Math.floor(Date.now() / 86400000);
+  const days = 30;
+  // Build per-day per-provider totals
+  const byDay = new Map();
+  let max = 1;
+  for (const r of rows) {
+    const d = Number(r.day_bucket);
+    if (!byDay.has(d)) byDay.set(d, {});
+    const tot = Number(r.input) + Number(r.output);
+    byDay.get(d)[r.provider] = (byDay.get(d)[r.provider] || 0) + tot;
+  }
+  for (const [, m] of byDay) {
+    const dayTotal = Object.values(m).reduce((a, b) => a + b, 0);
+    if (dayTotal > max) max = dayTotal;
+  }
+  const ns = 'http://www.w3.org/2000/svg';
+  const bw = (W - PAD * 2) / days;
+  for (let i = 0; i < days; i++) {
+    const day = today - (days - 1 - i);
+    const m = byDay.get(day);
+    if (!m) continue;
+    let yCursor = H - PAD;
+    for (const [prov, v] of Object.entries(m)) {
+      const h = (v / max) * (H - PAD * 2);
+      const rect = document.createElementNS(ns, 'rect');
+      rect.setAttribute('x', String(PAD + i * bw + 0.5));
+      rect.setAttribute('y', String(yCursor - h));
+      rect.setAttribute('width', String(Math.max(1, bw - 1)));
+      rect.setAttribute('height', String(h));
+      rect.setAttribute('fill', PROVIDER_STROKE[prov] || '#9ca3af');
+      const t = document.createElementNS(ns, 'title');
+      t.textContent = prov + ': ' + fmt.format(v) + ' tok';
+      rect.appendChild(t);
+      svg.appendChild(rect);
+      yCursor -= h;
+    }
+  }
+}
+
+function drawProfileModels(models) {
+  const box = document.getElementById('drawer-models');
+  box.innerHTML = '';
+  if (!models.length) { box.innerHTML = '<p class="text-xs text-on-surface-variant">No model data yet.</p>'; return; }
+  const top = models[0].total ? Number(models[0].total) : 1;
+  for (const m of models.slice(0, 8)) {
+    const v = Number(m.total) || 0;
+    const pct = Math.round((v / top) * 100);
+    const color = PROVIDER_STROKE[m.provider] || '#9ca3af';
+    const row = document.createElement('div');
+    row.className = 'flex items-center gap-3 text-xs';
+    row.innerHTML = '<div class="w-1.5 h-3" style="background:' + color + '"></div>'
+      + '<div class="flex-1 truncate font-data">' + esc(m.model) + '</div>'
+      + '<div class="w-20 h-1.5 bg-black/40"><div class="h-full" style="width:' + pct + '%;background:' + color + '"></div></div>'
+      + '<div class="w-16 text-right font-data text-on-surface-variant">' + fmtCompact.format(v) + '</div>'
+      + '<div class="w-10 text-right font-data text-on-surface-variant/50">' + (m.calls || 0) + '×</div>';
+    box.appendChild(row);
+  }
+}
+
+document.getElementById('drawer-close')?.addEventListener('click', closeProfile);
+document.getElementById('drawer-backdrop')?.addEventListener('click', closeProfile);
+// Trash-talk: send a 140-char bubble to whoever's in the drawer
+(() => {
+  const sendBtn = document.getElementById('drawer-trash-send');
+  const inputEl = document.getElementById('drawer-trash-input');
+  const statusEl = document.getElementById('drawer-trash-status');
+  if (!sendBtn) return;
+  async function send() {
+    const target = (document.getElementById('drawer-login').textContent || '').toLowerCase();
+    const message = inputEl.value.trim();
+    if (!target || !message) return;
+    sendBtn.disabled = true;
+    statusEl.classList.remove('text-red-400');
+    statusEl.textContent = 'sending…';
+    try {
+      const r = await fetch('/api/trash-talk', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ to_login: target, message }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'failed');
+      statusEl.textContent = '✓ posted — visible on their row for 30 min';
+      inputEl.value = '';
+      // Refresh leaderboard so the bubble shows up immediately
+      fetchBoard();
+    } catch (e) {
+      statusEl.classList.add('text-red-400');
+      statusEl.textContent = '✘ ' + (e.message || 'failed');
+    } finally {
+      sendBtn.disabled = false;
+    }
+  }
+  sendBtn.addEventListener('click', send);
+  inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+})();
+
+document.getElementById('drawer-share')?.addEventListener('click', async () => {
+  const login = document.getElementById('drawer-login').textContent.toLowerCase();
+  const url = location.origin + '/u/' + encodeURIComponent(login);
+  try {
+    await navigator.clipboard.writeText(url);
+    const btn = document.getElementById('drawer-share');
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<span class="material-symbols-outlined text-2xl text-secondary">check</span>';
+    setTimeout(() => { btn.innerHTML = orig; }, 1500);
+  } catch { /* clipboard blocked — silent */ }
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeProfile(); });
+
+// Dome switcher dropdown + create/join handlers
+(() => {
+  const btn = document.getElementById('dome-switcher');
+  const menu = document.getElementById('dome-menu');
+  if (!btn) return;
+  btn.addEventListener('click', (e) => { e.stopPropagation(); menu.classList.toggle('hidden'); });
+  document.addEventListener('click', (e) => {
+    if (!menu.contains(e.target) && !btn.contains(e.target)) menu.classList.add('hidden');
+  });
+  document.querySelector('[data-dome-pick=""]')?.addEventListener('click', () => {
+    setDomeScope(''); menu.classList.add('hidden');
+  });
+  document.getElementById('dome-create-btn')?.addEventListener('click', async () => {
+    menu.classList.add('hidden');
+    const name = prompt('Name your dome (e.g. "Friday Night Burners"):');
+    if (!name || !name.trim()) return;
+    const r = await fetch('/api/domes', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ name: name.trim() }) });
+    const j = await r.json();
+    if (!r.ok) { alert(j.error || 'failed to create dome'); return; }
+    await fetchDomes();
+    setDomeScope(j.slug);
+    // Surface the invite URL — copy to clipboard, then show in alert
+    try { await navigator.clipboard.writeText(j.invite_url); } catch {}
+    alert('Dome created. Invite URL copied to clipboard:\n\n' + j.invite_url);
+  });
+  document.getElementById('dome-join-btn')?.addEventListener('click', async () => {
+    menu.classList.add('hidden');
+    const code = prompt('Enter invite code:');
+    if (!code || !code.trim()) return;
+    const r = await fetch('/api/domes?join=1', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ invite_code: code.trim() }) });
+    const j = await r.json();
+    if (!r.ok) { alert(j.error || 'failed to join'); return; }
+    await fetchDomes();
+    setDomeScope(j.slug);
+  });
+})();
+
+// Identicon: a deterministic 5×5 mirrored block pattern from a string seed.
+// Used for anonymized users so their GitHub avatar never leaks identity.
+function identiconDataUrl(seed) {
+  const s = String(seed || '?');
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h) ^ s.charCodeAt(i);
+  // Hue derived from hash so each name gets its own steady color
+  const hue = Math.abs(h) % 360;
+  const fg = `hsl(${hue} 70% 55%)`;
+  const bg = '#16161B';
+  const cells = [];
+  for (let row = 0; row < 5; row++) {
+    for (let col = 0; col < 3; col++) {
+      // Pseudo-random bit per (row,col) — left half only, mirror the rest
+      const bit = ((Math.abs(h) >> (row * 3 + col)) & 1) === 1;
+      if (bit) {
+        cells.push(`<rect x="${col * 8}" y="${row * 8}" width="8" height="8"/>`);
+        if (col < 2) cells.push(`<rect x="${(4 - col) * 8}" y="${row * 8}" width="8" height="8"/>`);
+      }
+    }
+  }
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" shape-rendering="crispEdges"><rect width="40" height="40" fill="${bg}"/><g fill="${fg}">${cells.join('')}</g></svg>`;
+  return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+}
+function avatarFor(row) {
+  return row.avatar_url || identiconDataUrl(row.login);
+}
+
+// Settings: anonymization / display name
+(() => {
+  const openBtn = document.getElementById('settings-open');
+  const modal = document.getElementById('settings-modal');
+  const backdrop = document.getElementById('settings-backdrop');
+  const closeBtn = document.getElementById('settings-close');
+  const saveBtn = document.getElementById('settings-save');
+  const clearBtn = document.getElementById('settings-clear');
+  const nameEl = document.getElementById('settings-name');
+  const currentEl = document.getElementById('settings-current');
+  const statusEl = document.getElementById('settings-status');
+  if (!openBtn) return;
+  function show(yes) {
+    modal.classList.toggle('hidden', !yes);
+    backdrop.classList.toggle('hidden', !yes);
+    if (yes) {
+      // Fetch the truth fresh so we know real_login + display_name
+      fetch('/api/me').then(r => r.json()).then(m => {
+        if (!m.authenticated) return;
+        nameEl.value = m.display_name || '';
+        document.getElementById('settings-hidden').checked = !!m.hidden;
+        currentEl.textContent = m.hidden
+          ? '👻 Ghost mode ON — you are not visible anywhere publicly.'
+          : (m.is_anonymized
+              ? '✓ Anonymized — your GitHub login (' + m.real_login + ') is hidden from everyone.'
+              : '⚠ Currently public as @' + m.real_login + ' (your GitHub handle).');
+        statusEl.textContent = '';
+        statusEl.classList.remove('text-red-400');
+        nameEl.focus();
+      });
+    }
+  }
+  openBtn.addEventListener('click', () => show(true));
+  closeBtn.addEventListener('click', () => show(false));
+  backdrop.addEventListener('click', () => show(false));
+  async function save(displayName) {
+    saveBtn.disabled = true;
+    statusEl.classList.remove('text-red-400');
+    statusEl.textContent = 'saving…';
+    const hidden = !!document.getElementById('settings-hidden').checked;
+    try {
+      const r = await fetch('/api/me', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ display_name: displayName, hidden }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'failed');
+      statusEl.textContent = '✓ saved';
+      // Refresh the world: header chip, leaderboard rows, profile drawer
+      await fetchMe();
+      await fetchBoard();
+      setTimeout(() => show(false), 800);
+    } catch (e) {
+      statusEl.classList.add('text-red-400');
+      statusEl.textContent = '✘ ' + (e.message || 'failed');
+    } finally {
+      saveBtn.disabled = false;
+    }
+  }
+  saveBtn.addEventListener('click', () => save(nameEl.value.trim() || null));
+  clearBtn.addEventListener('click', () => { nameEl.value = ''; save(null); });
+  nameEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(nameEl.value.trim() || null); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !modal.classList.contains('hidden')) show(false);
+  });
+})();
+
+// Backfill modal: pull historical usage via the chosen provider's admin API
+(() => {
+  const openBtn = document.getElementById('backfill-open');
+  const modal = document.getElementById('backfill-modal');
+  const backdrop = document.getElementById('backfill-backdrop');
+  const closeBtn = document.getElementById('backfill-close');
+  const runBtn = document.getElementById('backfill-run');
+  const keyEl = document.getElementById('backfill-key');
+  const statusEl = document.getElementById('backfill-status');
+  const dayBtns = [...document.querySelectorAll('[data-bf-days]')];
+  const provBtns = [...document.querySelectorAll('[data-bf-provider]')];
+  const labelEl = document.getElementById('bf-provider-label');
+  if (!openBtn) return;
+  let days = 90;
+  let provider = 'anthropic';
+  const PROV_META = {
+    anthropic: { label: 'Anthropic', placeholder: 'sk-ant-admin01-…', prefix: 'sk-ant-admin01-', endpoint: '/api/import/anthropic' },
+    openai:    { label: 'OpenAI',    placeholder: 'sk-…',             prefix: 'sk-',              endpoint: '/api/import/openai' },
+  };
+  function setProvider(p) {
+    provider = p;
+    const meta = PROV_META[p];
+    labelEl.textContent = meta.label;
+    keyEl.placeholder = meta.placeholder;
+    keyEl.value = '';
+    statusEl.textContent = '';
+    statusEl.classList.remove('text-red-400');
+    document.querySelectorAll('[data-bf-help]').forEach(el => {
+      el.classList.toggle('hidden', el.dataset.bfHelp !== p);
+    });
+    provBtns.forEach(b => {
+      const on = b.dataset.bfProvider === p;
+      b.classList.toggle('border-primary-container', on);
+      b.classList.toggle('text-primary-container', on);
+      b.classList.toggle('border-transparent', !on);
+      b.classList.toggle('text-on-surface-variant', !on);
+    });
+  }
+  provBtns.forEach(b => b.addEventListener('click', () => setProvider(b.dataset.bfProvider)));
+
+  function show(yes) {
+    modal.classList.toggle('hidden', !yes);
+    backdrop.classList.toggle('hidden', !yes);
+    if (yes) keyEl.focus();
+  }
+  openBtn.addEventListener('click', () => show(true));
+  closeBtn.addEventListener('click', () => show(false));
+  backdrop.addEventListener('click', () => show(false));
+  dayBtns.forEach(b => b.addEventListener('click', () => {
+    days = Number(b.dataset.bfDays);
+    dayBtns.forEach(other => {
+      const on = other === b;
+      other.classList.toggle('border-2', on);
+      other.classList.toggle('border-primary-container', on);
+      other.classList.toggle('text-primary-container', on);
+      other.classList.toggle('border', !on);
+      other.classList.toggle('border-outline-variant/30', !on);
+      other.classList.toggle('text-on-surface-variant', !on);
+    });
+  }));
+  runBtn.addEventListener('click', async () => {
+    const meta = PROV_META[provider];
+    const key = keyEl.value.trim();
+    if (!key.startsWith(meta.prefix)) {
+      statusEl.textContent = 'Need an admin key (' + meta.placeholder + ')';
+      statusEl.classList.add('text-red-400');
+      return;
+    }
+    statusEl.classList.remove('text-red-400');
+    runBtn.disabled = true;
+    statusEl.textContent = 'Calling ' + meta.label + ' Admin API…';
+    try {
+      const r = await fetch(meta.endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ admin_key: key, days }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+      statusEl.classList.remove('text-red-400');
+      statusEl.textContent = `✓ ${fmt.format(j.rows_imported)} rows · ${fmtCompact.format(j.totals.input + j.totals.output)} tok · $${(j.totals.cost_cents / 100).toFixed(2)}`;
+      keyEl.value = '';
+      await fetchBoard();
+      setTimeout(() => show(false), 2000);
+    } catch (e) {
+      statusEl.classList.add('text-red-400');
+      statusEl.textContent = '✘ ' + (e.message || 'failed');
+    } finally {
+      runBtn.disabled = false;
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !modal.classList.contains('hidden')) show(false);
+  });
+})();
+
+// Mobile horizontal tab strip — mirrors the desktop sidebar selection.
+(() => {
+  const btns = [...document.querySelectorAll('[data-mobile-tab]')];
+  if (!btns.length) return;
+  function syncMobileTabs(which) {
+    btns.forEach(b => {
+      const on = b.dataset.mobileTab === which;
+      b.classList.toggle('border-primary-container', on);
+      b.classList.toggle('text-primary-container', on);
+      b.classList.toggle('border-transparent', !on);
+      b.classList.toggle('text-on-surface-variant', !on);
+    });
+  }
+  btns.forEach(b => b.addEventListener('click', () => {
+    setActive(b.dataset.mobileTab);
+    syncMobileTabs(b.dataset.mobileTab);
+  }));
+  // Keep mobile in sync if desktop sidebar is used
+  const _setActive = setActive;
+  window.setActive = function (tab) { _setActive(tab); syncMobileTabs(tab); };
+})();
+
+// ────── Boot ──────
+fetchMe();
+fetchBoard().then(() => {
+  for (const r of (state.all_time || [])) lastSnapshot[r.login] = Number(r.total) || 0;
+  // Deep link: /u/<login> opens the profile drawer for that user.
+  const m = location.pathname.match(/^\/u\/([^\/]+)$/);
+  if (m) openProfile(decodeURIComponent(m[1]));
+});
+setInterval(livePoll, 3000);
+
+// Update the profile-drawer "share" affordance to push the URL into the bar
+// without a full nav, so back-button closes the drawer naturally.
+(() => {
+  const _open = window.openProfile || openProfile;
+  window.openProfile = function (login) {
+    _open(login);
+    try { history.pushState({ profile: login }, '', '/u/' + encodeURIComponent(login)); } catch {}
+  };
+  const _close = window.closeProfile || closeProfile;
+  window.closeProfile = function () {
+    _close();
+    if (location.pathname.startsWith('/u/')) {
+      try { history.pushState({}, '', '/'); } catch {}
+    }
+  };
+  window.addEventListener('popstate', (e) => {
+    const path = location.pathname;
+    const m = path.match(/^\/u\/([^\/]+)$/);
+    if (m) _open(decodeURIComponent(m[1]));
+    else _close();
+  });
+})();
+</script>
+</body>
+</html>

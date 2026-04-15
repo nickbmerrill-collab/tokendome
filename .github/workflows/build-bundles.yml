@@ -1,0 +1,71 @@
+# On every push to main: rebuild the agent + SDK tarballs that ship from
+# /public, and commit them back if anything changed. Means contributors
+# never have to remember to run `npm pack` and Vercel always serves a
+# tarball matching the source.
+name: Build agent + SDK tarballs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'agent/**'
+      - 'sdks/**'
+      - '.github/workflows/build-bundles.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Skip the auto-commit re-trigger. The bot's own commits get
+    # `[skip-bundles]` in the message; this guard prevents a loop.
+    if: ${{ !contains(github.event.head_commit.message, '[skip-bundles]') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build agent
+        working-directory: agent
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+          # Stage the bundled agent in /public so Vercel serves it
+          cp dist/tokendome.js ../public/tokendome.js
+
+      - name: Build + pack @tokendome/anthropic
+        working-directory: sdks/anthropic
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+          rm -f *.tgz
+          npm pack
+          cp tokendome-anthropic-*.tgz ../../public/tokendome-anthropic.tgz
+
+      - name: Build + pack @tokendome/openai
+        working-directory: sdks/openai
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+          rm -f *.tgz
+          npm pack
+          cp tokendome-openai-*.tgz ../../public/tokendome-openai.tgz
+
+      - name: Commit tarballs if changed
+        run: |
+          git config user.name  "tokendome-bot"
+          git config user.email "tokendome-bot@users.noreply.github.com"
+          git add public/tokendome.js public/tokendome-anthropic.tgz public/tokendome-openai.tgz
+          if git diff --staged --quiet; then
+            echo "No bundle changes."
+            exit 0
+          fi
+          git commit -m "ci: rebuild agent + SDK tarballs [skip-bundles]"
+          git push

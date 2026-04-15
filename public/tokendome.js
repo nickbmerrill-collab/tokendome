@@ -726,6 +726,11 @@ function help() {
   tokendome service install              install as a launchd/systemd user service so the proxy starts on login
   tokendome service uninstall            remove the user service
   tokendome service status               show whether the user service is loaded
+
+  tokendome capture-all install          (REQUIRES SUDO) transparent egress redirect for known LLM API hosts → localhost:4000.
+                                         the "no escape" mode for services that ignore *_BASE_URL env vars.
+  tokendome capture-all uninstall        revert the redirect rules
+
   tokendome help
 
 Multi-source examples:
@@ -855,6 +860,105 @@ function serviceUninstall() {
     console.error('✘ tokendome service: only macOS and Linux supported.');
     process.exit(1);
 }
+// ─── capture-all: transparent egress redirect (pfctl on macOS, iptables on Linux)
+//
+// Hostnames the agent is willing to capture transparently. Conservative list
+// — only well-known LLM provider endpoints. Adding more is a config change.
+const CAPTURE_HOSTS = [
+    'api.openai.com',
+    'api.anthropic.com',
+    'generativelanguage.googleapis.com',
+];
+const PF_ANCHOR = 'tokendome';
+const PF_RULES_PATH = path.join(CONFIG_DIR, 'pf-rules.conf');
+function resolveAll(host) {
+    const r = execv('dig', ['+short', host]);
+    if (r.code !== 0)
+        return [];
+    return r.stdout.split('\n').map(s => s.trim()).filter(s => /^\d+\.\d+\.\d+\.\d+$/.test(s));
+}
+async function captureAllInstall() {
+    const platform = process.platform;
+    console.log('⚠  capture-all transparently redirects egress to known LLM API hosts');
+    console.log('   through localhost:' + loadConfig().port + '. Requires sudo. Reversible.');
+    console.log('');
+    console.log('   Hosts that will be redirected:');
+    for (const h of CAPTURE_HOSTS)
+        console.log('    -', h);
+    console.log('');
+    if (platform === 'darwin') {
+        // pfctl approach: write rdr rules into a named anchor, then enable pf
+        // and tell it to load our anchor. Idempotent: re-running replaces.
+        const port = loadConfig().port;
+        const ips = [];
+        for (const h of CAPTURE_HOSTS)
+            for (const ip of resolveAll(h))
+                ips.push(ip);
+        if (ips.length === 0) {
+            console.error('✘ Could not resolve any capture hosts. Are you online?');
+            process.exit(1);
+        }
+        const rules = ips.map(ip => `rdr pass on lo0 inet proto tcp from any to ${ip} port 443 -> 127.0.0.1 port ${port}`).join('\n');
+        fs.writeFileSync(PF_RULES_PATH, rules + '\n');
+        console.log('Wrote rules:', PF_RULES_PATH);
+        console.log('You will be prompted for sudo …');
+        const r1 = execv('sudo', ['pfctl', '-a', PF_ANCHOR, '-f', PF_RULES_PATH]);
+        if (r1.code !== 0) {
+            console.error('✘ pfctl load failed:', r1.stderr.trim());
+            process.exit(1);
+        }
+        const r2 = execv('sudo', ['pfctl', '-E']);
+        if (r2.code !== 0 && !/pf already enabled/i.test(r2.stderr)) {
+            console.error('✘ pfctl enable failed:', r2.stderr.trim());
+            process.exit(1);
+        }
+        console.log('✓ Egress redirect installed. To revert: tokendome capture-all uninstall');
+        console.log('  Note: TLS will fail until your services trust the proxy as a man-in-the-middle.');
+        console.log('  This is intentional — capture-all is a "what is bypassing me?" diagnostic, not a fully-working transparent MITM.');
+        console.log('  Use it to discover which services need *_BASE_URL set, then uninstall.');
+        return;
+    }
+    if (platform === 'linux') {
+        const port = loadConfig().port;
+        console.log('You will be prompted for sudo …');
+        let installed = 0;
+        for (const h of CAPTURE_HOSTS) {
+            for (const ip of resolveAll(h)) {
+                const r = execv('sudo', ['iptables', '-t', 'nat', '-A', 'OUTPUT', '-d', ip, '-p', 'tcp', '--dport', '443', '-j', 'REDIRECT', '--to-port', String(port), '-m', 'comment', '--comment', PF_ANCHOR]);
+                if (r.code === 0)
+                    installed++;
+            }
+        }
+        console.log(`✓ Installed ${installed} iptables REDIRECT rules. Revert: tokendome capture-all uninstall`);
+        return;
+    }
+    console.error('✘ capture-all: only macOS (pfctl) and Linux (iptables) supported.');
+    process.exit(1);
+}
+function captureAllUninstall() {
+    const platform = process.platform;
+    if (platform === 'darwin') {
+        console.log('You will be prompted for sudo to flush the pf anchor …');
+        execv('sudo', ['pfctl', '-a', PF_ANCHOR, '-F', 'all']);
+        if (fs.existsSync(PF_RULES_PATH))
+            fs.unlinkSync(PF_RULES_PATH);
+        console.log('✓ Egress redirect removed.');
+        return;
+    }
+    if (platform === 'linux') {
+        console.log('You will be prompted for sudo to remove iptables rules …');
+        // Remove every rule we added (matched by our --comment)
+        while (true) {
+            const r = execv('sudo', ['iptables', '-t', 'nat', '-D', 'OUTPUT', '-m', 'comment', '--comment', PF_ANCHOR, '-j', 'REDIRECT']);
+            if (r.code !== 0)
+                break;
+        }
+        console.log('✓ iptables rules removed.');
+        return;
+    }
+    console.error('✘ capture-all: only macOS and Linux supported.');
+    process.exit(1);
+}
 function serviceStatus() {
     const platform = platformService();
     if (platform === 'launchd') {
@@ -915,6 +1019,15 @@ function main() {
             if (sub === 'status')
                 return serviceStatus();
             console.error('usage: tokendome service install|uninstall|status');
+            process.exit(1);
+        }
+        case 'capture-all': {
+            const sub = rest[0];
+            if (sub === 'install')
+                return void captureAllInstall();
+            if (sub === 'uninstall')
+                return captureAllUninstall();
+            console.error('usage: tokendome capture-all install|uninstall');
             process.exit(1);
         }
         case 'start': {

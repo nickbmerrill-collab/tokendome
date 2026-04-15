@@ -1460,8 +1460,8 @@ async function manageDome(d) {
   document.getElementById('dome-menu').classList.add('hidden');
   const isOwner = !!d.invite_code; // owners get the code in /api/domes
   const choices = isOwner
-    ? '1) Rename · 2) Rotate invite code · 3) Copy invite URL · 4) Delete dome'
-    : '1) Copy invite URL · 2) Leave dome';
+    ? '1) Rename · 2) Rotate invite code · 3) Copy invite URL · 4) Challenge a friend (text + install) · 5) Delete dome'
+    : '1) Copy invite URL · 2) Challenge a friend (text + install) · 3) Leave dome';
   const pick = prompt('Manage "' + d.name + '"\n' + choices + '\n\nEnter a number:');
   if (!pick) return;
   const inviteUrl = location.origin + '/?dome=' + encodeURIComponent(d.slug) + (d.invite_code ? '&invite=' + d.invite_code : '');
@@ -1485,6 +1485,8 @@ async function manageDome(d) {
       try { await navigator.clipboard.writeText(inviteUrl); alert('Invite URL copied:\n' + inviteUrl); }
       catch { prompt('Copy this URL:', inviteUrl); }
     } else if (pick === '4') {
+      await challengeFriend(d, inviteUrl);
+    } else if (pick === '5') {
       if (!confirm('Permanently delete "' + d.name + '"? Members will be removed.')) return;
       const r = await fetch('/api/domes/' + encodeURIComponent(d.slug), { method: 'DELETE' });
       const j = await r.json();
@@ -1497,6 +1499,8 @@ async function manageDome(d) {
       try { await navigator.clipboard.writeText(inviteUrl); alert('Invite URL copied:\n' + inviteUrl); }
       catch { prompt('Copy this URL:', inviteUrl); }
     } else if (pick === '2') {
+      await challengeFriend(d, inviteUrl);
+    } else if (pick === '3') {
       if (!confirm('Leave "' + d.name + '"?')) return;
       const r = await fetch('/api/domes/' + encodeURIComponent(d.slug) + '?leave=1', { method: 'DELETE' });
       const j = await r.json();
@@ -1504,6 +1508,41 @@ async function manageDome(d) {
       if (domeScope === d.slug) setDomeScope('');
       await fetchDomes();
     }
+  }
+}
+
+// Compose a paste-ready text-message-style challenge: install one-liner +
+// dome invite URL. Copies to clipboard so the user can drop it into iMessage,
+// Slack, Discord, whatever.
+async function challengeFriend(d, inviteUrl) {
+  // We can't bake their friend's TOKENDOME_TOKEN into the install line —
+  // each friend needs their own from sign-in. So the message is structured
+  // as: install agent → sign in → join dome → start burning.
+  const msg =
+`⚡ THE TOKENDOME — you've been challenged.
+
+Dome: ${d.name}
+Join: ${inviteUrl}
+
+1) Sign in with GitHub at the link above, copy your agent token from the setup card.
+2) Install the agent + auto-start it as a service:
+
+   curl -fsSL ${location.origin}/install.sh | TOKENDOME_TOKEN=<paste-your-token> TOKENDOME_SERVICE=1 bash
+
+3) Point any of your services at it:
+
+   export OPENAI_BASE_URL="http://localhost:4000/v1"
+   export ANTHROPIC_BASE_URL="http://localhost:4000"
+   export OLLAMA_HOST="http://localhost:4000"
+
+Two devs enter. One leaderboard leaves.`;
+  try {
+    await navigator.clipboard.writeText(msg);
+    alert('✓ Challenge message copied to clipboard. Paste it into iMessage / Slack / Discord / wherever.\n\n(You can preview the text in the prompt that follows.)');
+    // Show the message in case they want to see/edit it before pasting
+    prompt('Preview / edit before sending:', msg);
+  } catch {
+    prompt('Copy this challenge text:', msg);
   }
 }
 

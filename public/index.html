@@ -318,30 +318,105 @@ tailwind.config = {
     <div class="flex-1 p-8 space-y-6">
       <div class="space-y-1">
         <h3 class="text-xl font-headline font-bold text-primary-container uppercase">Enter the Dome</h3>
-        <p class="text-sm text-on-surface-variant">Pick a path. The first one's faster if you're on Node + Anthropic.</p>
+        <p class="text-sm text-on-surface-variant">Two steps. The first one puts you on the board in 60 seconds — no install, no code change.</p>
       </div>
 
-      <!-- Token (shared by both paths) -->
-      <div class="space-y-2">
-        <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">Your Agent Token <span class="text-on-surface-variant/70 normal-case font-normal">— keep secret</span></label>
-        <div class="bg-surface-container-lowest p-3 flex justify-between items-center group">
-          <code id="token" class="font-data text-xs text-primary break-all">—</code>
-          <button data-copy="token" class="copy-btn text-primary-container opacity-50 group-hover:opacity-100"><span class="material-symbols-outlined text-sm">content_copy</span></button>
+      <!-- ════════════════════════════════════════════════════════════════
+           STEP 1 — Instant board placement (no install). Paste a read-only
+           Admin key, pull historical usage, idempotent re-runs.
+           ════════════════════════════════════════════════════════════════ -->
+      <div class="border-2 border-primary-container/40 bg-primary-container/5 p-5 space-y-4">
+        <div class="flex items-start justify-between gap-3">
+          <div class="space-y-1">
+            <p class="text-[10px] font-headline font-black uppercase tracking-[0.3em] text-primary-container">Step 1 · Instant placement</p>
+            <h4 class="text-2xl font-headline font-black uppercase italic tracking-tighter">Get on the board in 60s</h4>
+            <p class="text-xs text-on-surface-variant">Paste a read-only Admin key. We pull your last <span id="bf-days-label" class="text-on-surface">90</span> days of usage — Claude Code, claude.ai, ChatGPT, direct API, everything on your org. <span class="text-primary-container">No install. No code change.</span></p>
+          </div>
+          <span class="material-symbols-outlined text-primary-container/40 text-5xl shrink-0 hidden md:block">rocket_launch</span>
         </div>
-      </div>
 
-      <!-- Tabs -->
-      <div class="flex gap-1 border-b border-outline-variant/20 flex-wrap">
-        <button data-setup-tab="anthropic" class="setup-tab px-4 py-2 text-xs font-headline font-bold uppercase tracking-widest border-b-2 border-primary-container text-primary-container">Anthropic <span class="text-[9px] opacity-60">~30s</span></button>
-        <button data-setup-tab="openai" class="setup-tab px-4 py-2 text-xs font-headline font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant hover:text-primary-container/80">OpenAI <span class="text-[9px] opacity-60">~30s</span></button>
-        <button data-setup-tab="cli" class="setup-tab px-4 py-2 text-xs font-headline font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant hover:text-primary-container/80">CLI Proxy <span class="text-[9px] opacity-60">any provider</span></button>
-        <div class="ml-auto self-center pr-1">
-          <button id="backfill-open" class="text-[10px] font-headline font-bold uppercase tracking-widest text-secondary hover:text-on-surface flex items-center gap-1">
-            <span class="material-symbols-outlined text-sm">history</span>
-            <span>Backfill from Anthropic</span>
+        <!-- Provider sub-tabs -->
+        <div class="flex gap-1 border-b border-outline-variant/20">
+          <button data-bf-provider="anthropic" class="bf-prov-btn px-3 py-2 text-xs font-headline font-bold uppercase tracking-widest border-b-2 border-primary-container text-primary-container">Anthropic</button>
+          <button data-bf-provider="openai" class="bf-prov-btn px-3 py-2 text-xs font-headline font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant">OpenAI</button>
+          <button data-bf-provider="csv" class="bf-prov-btn px-3 py-2 text-xs font-headline font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant">CSV paste</button>
+        </div>
+
+        <div data-bf-help="anthropic" class="space-y-1.5 text-xs text-on-surface-variant">
+          <p>Includes Max-plan calls (Claude Code, claude.ai) plus any direct Anthropic API usage on the same org.</p>
+          <p>Get a key at <span class="text-on-surface">console.anthropic.com → Settings → API Keys → Create Admin Key</span>. Format: <code class="font-data text-primary-container">sk-ant-admin01-…</code></p>
+        </div>
+        <div data-bf-help="openai" class="space-y-1.5 text-xs text-on-surface-variant hidden">
+          <p>Pulls daily token usage from the OpenAI Usage API for your organization, broken down by model.</p>
+          <p>Get a key at <span class="text-on-surface">platform.openai.com → Settings → Admin keys → Create</span>. Must have org-admin scope.</p>
+        </div>
+        <div data-bf-help="csv" class="space-y-2 text-xs text-on-surface-variant hidden">
+          <p>Paste a CSV exported from any provider's billing dashboard. Needs a date column, an input-tokens column, and an output-tokens column. Optional: model, cache_read, cache_write.</p>
+          <div class="space-y-1">
+            <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">Provider tag for these rows</label>
+            <select id="bf-csv-provider" class="w-full bg-surface-container-lowest border border-outline-variant/30 px-3 py-2 font-data text-xs text-on-surface focus:outline-none focus:border-primary-container/60">
+              <option value="anthropic">anthropic</option>
+              <option value="openai">openai</option>
+              <option value="google">google</option>
+              <option value="ollama">ollama</option>
+            </select>
+          </div>
+          <div class="space-y-1">
+            <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">CSV (paste here)</label>
+            <textarea id="bf-csv-text" rows="6" placeholder="date,model,input_tokens,output_tokens&#10;2026-04-01,claude-3-5-sonnet,1234,567" class="w-full bg-surface-container-lowest border border-outline-variant/30 px-3 py-2 font-data text-[11px] text-on-surface focus:outline-none focus:border-primary-container/60 resize-y"></textarea>
+          </div>
+        </div>
+
+        <div id="bf-key-row" class="space-y-1.5">
+          <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">Admin key</label>
+          <input id="backfill-key" type="password" autocomplete="off" placeholder="sk-ant-admin01-…" class="w-full bg-surface-container-lowest border border-outline-variant/30 px-3 py-2.5 font-data text-xs text-on-surface focus:outline-none focus:border-primary-container/60" />
+          <p class="text-[10px] text-on-surface-variant/70">⚠ Used once for this request. Never stored. Re-running overwrites the previous backfill (idempotent).</p>
+        </div>
+
+        <div id="bf-days-row" class="space-y-1.5">
+          <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">Days back</label>
+          <div class="flex gap-2">
+            <button data-bf-days="30" class="bf-day-btn flex-1 px-3 py-2 text-xs font-headline font-bold uppercase border border-outline-variant/30 text-on-surface-variant hover:text-on-surface">30</button>
+            <button data-bf-days="90" class="bf-day-btn flex-1 px-3 py-2 text-xs font-headline font-bold uppercase border-2 border-primary-container text-primary-container">90</button>
+            <button data-bf-days="180" class="bf-day-btn flex-1 px-3 py-2 text-xs font-headline font-bold uppercase border border-outline-variant/30 text-on-surface-variant hover:text-on-surface">180</button>
+            <button data-bf-days="365" class="bf-day-btn flex-1 px-3 py-2 text-xs font-headline font-bold uppercase border border-outline-variant/30 text-on-surface-variant hover:text-on-surface">365</button>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between gap-3 pt-1">
+          <span id="backfill-status" class="text-xs font-data text-on-surface-variant flex-1 min-w-0 truncate"></span>
+          <button id="backfill-run" class="bg-primary-container text-on-primary-container px-6 py-3 font-headline font-black text-sm uppercase tracking-widest italic hover:brightness-110 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed shrink-0">
+            Enter the Dome →
           </button>
         </div>
       </div>
+
+      <!-- ════════════════════════════════════════════════════════════════
+           STEP 2 — Stream new tokens live so future calls keep showing up.
+           Optional. The instant placement above is enough to compete.
+           ════════════════════════════════════════════════════════════════ -->
+      <div class="space-y-3 pt-2">
+        <div class="space-y-1">
+          <p class="text-[10px] font-headline font-black uppercase tracking-[0.3em] text-secondary">Step 2 · Stream live <span class="text-on-surface-variant/70 normal-case font-normal tracking-normal">(optional)</span></p>
+          <h4 class="text-lg font-headline font-bold uppercase">Keep new tokens flowing in</h4>
+          <p class="text-xs text-on-surface-variant">The Admin-API import only catches what's already billed. To see new calls show up live as they happen, drop in the SDK shim or run the local proxy.</p>
+        </div>
+
+        <!-- Token (used by SDK + CLI install commands) -->
+        <div class="space-y-1.5">
+          <label class="text-[10px] uppercase font-bold text-secondary tracking-widest font-headline">Your Agent Token <span class="text-on-surface-variant/70 normal-case font-normal">— keep secret</span></label>
+          <div class="bg-surface-container-lowest p-3 flex justify-between items-center group">
+            <code id="token" class="font-data text-xs text-primary break-all">—</code>
+            <button data-copy="token" class="copy-btn text-primary-container opacity-50 group-hover:opacity-100"><span class="material-symbols-outlined text-sm">content_copy</span></button>
+          </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="flex gap-1 border-b border-outline-variant/20 flex-wrap">
+          <button data-setup-tab="anthropic" class="setup-tab px-4 py-2 text-xs font-headline font-bold uppercase tracking-widest border-b-2 border-secondary text-secondary">Anthropic SDK <span class="text-[9px] opacity-60">~30s</span></button>
+          <button data-setup-tab="openai" class="setup-tab px-4 py-2 text-xs font-headline font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant hover:text-secondary/80">OpenAI SDK <span class="text-[9px] opacity-60">~30s</span></button>
+          <button data-setup-tab="cli" class="setup-tab px-4 py-2 text-xs font-headline font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant hover:text-secondary/80">CLI Proxy <span class="text-[9px] opacity-60">any provider</span></button>
+        </div>
 
       <!-- Path: Anthropic SDK ─── one-liner install + 1 import edit -->
       <div data-setup-panel="anthropic" class="space-y-3">
@@ -571,73 +646,7 @@ tailwind.config = {
   </div>
 </div>
 
-<!-- Backfill modal: imports historical usage via provider's admin API -->
-<div id="backfill-backdrop" class="hidden fixed inset-0 bg-black/70 z-40"></div>
-<div id="backfill-modal" class="hidden fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[92%] md:w-[560px] max-h-[90vh] overflow-y-auto bg-surface-container-low border-2 border-primary-container/40 z-50 p-6 space-y-5">
-  <div class="flex items-start justify-between">
-    <div>
-      <p class="text-[10px] font-headline font-black uppercase tracking-[0.3em] text-primary-container">Historical import</p>
-      <h3 class="text-2xl font-headline font-black uppercase italic tracking-tighter mt-1">Backfill from <span id="bf-provider-label">Anthropic</span></h3>
-    </div>
-    <button id="backfill-close" class="text-on-surface-variant hover:text-primary-container">
-      <span class="material-symbols-outlined text-3xl">close</span>
-    </button>
-  </div>
-
-  <!-- Provider sub-tabs -->
-  <div class="flex gap-1 border-b border-outline-variant/20">
-    <button data-bf-provider="anthropic" class="bf-prov-btn px-3 py-2 text-xs font-headline font-bold uppercase tracking-widest border-b-2 border-primary-container text-primary-container">Anthropic</button>
-    <button data-bf-provider="openai" class="bf-prov-btn px-3 py-2 text-xs font-headline font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant">OpenAI</button>
-    <button data-bf-provider="csv" class="bf-prov-btn px-3 py-2 text-xs font-headline font-bold uppercase tracking-widest border-b-2 border-transparent text-on-surface-variant">CSV paste</button>
-  </div>
-
-  <div data-bf-help="anthropic" class="space-y-3 text-sm text-on-surface-variant">
-    <p>Pulls daily token usage from the <a href="https://docs.anthropic.com/en/api/admin-api/usage-cost/get-messages-usage-report" target="_blank" class="text-primary-container hover:underline">Anthropic Admin Usage API</a>. Includes Max-plan calls (Claude Code, claude.ai) plus any direct API usage on the same org.</p>
-    <p class="text-xs">Get a key at <span class="text-on-surface">console.anthropic.com → Settings → API Keys → Create Admin Key</span>. Format: <code class="font-data text-primary-container">sk-ant-admin01-…</code></p>
-  </div>
-  <div data-bf-help="openai" class="space-y-3 text-sm text-on-surface-variant hidden">
-    <p>Pulls daily token usage from the <a href="https://platform.openai.com/docs/api-reference/usage" target="_blank" class="text-primary-container hover:underline">OpenAI Usage API</a> for your organization, broken down by model.</p>
-    <p class="text-xs">Get a key at <span class="text-on-surface">platform.openai.com → Settings → Admin keys → Create</span>. Must have org-admin scope.</p>
-  </div>
-  <div data-bf-help="csv" class="space-y-3 text-sm text-on-surface-variant hidden">
-    <p>Paste a CSV exported from any provider's billing dashboard. Forgivingly column-mapped — needs a date column, an input-tokens column, and an output-tokens column. Optional: model, cache_read, cache_write.</p>
-    <p class="text-xs">Anthropic: console.anthropic.com → Billing → Usage → Export. OpenAI: platform.openai.com → Usage → Export. Or hand-roll one.</p>
-    <div class="space-y-1">
-      <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">Provider tag for these rows</label>
-      <select id="bf-csv-provider" class="w-full bg-surface-container-lowest border border-outline-variant/30 px-3 py-2 font-data text-xs text-on-surface focus:outline-none focus:border-primary-container/60">
-        <option value="anthropic">anthropic</option>
-        <option value="openai">openai</option>
-        <option value="google">google</option>
-        <option value="ollama">ollama</option>
-      </select>
-    </div>
-    <div class="space-y-1">
-      <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">CSV (paste here)</label>
-      <textarea id="bf-csv-text" rows="8" placeholder="date,model,input_tokens,output_tokens&#10;2026-04-01,claude-3-5-sonnet,1234,567" class="w-full bg-surface-container-lowest border border-outline-variant/30 px-3 py-2 font-data text-[11px] text-on-surface focus:outline-none focus:border-primary-container/60 resize-y"></textarea>
-    </div>
-  </div>
-  <p class="text-[11px] bg-surface-container-highest border border-outline-variant/30 p-2 rounded"><span class="text-primary-container">⚠</span> The key is used once for this request and never stored. Re-running this import overwrites the previous backfill for that provider (no double-counting).</p>
-
-  <div id="bf-key-row" class="space-y-2">
-    <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">Admin key</label>
-    <input id="backfill-key" type="password" autocomplete="off" placeholder="sk-ant-admin01-…" class="w-full bg-surface-container-lowest border border-outline-variant/30 px-3 py-2 font-data text-xs text-on-surface focus:outline-none focus:border-primary-container/60" />
-  </div>
-
-  <div class="space-y-2">
-    <label class="text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">Days back</label>
-    <div class="flex gap-2">
-      <button data-bf-days="30" class="bf-day-btn flex-1 px-3 py-2 text-xs font-headline font-bold uppercase border border-outline-variant/30 text-on-surface-variant hover:text-on-surface">30</button>
-      <button data-bf-days="90" class="bf-day-btn flex-1 px-3 py-2 text-xs font-headline font-bold uppercase border-2 border-primary-container text-primary-container">90</button>
-      <button data-bf-days="180" class="bf-day-btn flex-1 px-3 py-2 text-xs font-headline font-bold uppercase border border-outline-variant/30 text-on-surface-variant hover:text-on-surface">180</button>
-      <button data-bf-days="365" class="bf-day-btn flex-1 px-3 py-2 text-xs font-headline font-bold uppercase border border-outline-variant/30 text-on-surface-variant hover:text-on-surface">365</button>
-    </div>
-  </div>
-
-  <div class="flex items-center justify-end gap-3 pt-2">
-    <span id="backfill-status" class="text-xs font-data text-on-surface-variant"></span>
-    <button id="backfill-run" class="bg-primary-container text-on-primary-container px-5 py-2 font-headline font-bold text-xs uppercase tracking-widest hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed">Import</button>
-  </div>
-</div>
+<!-- (Backfill UI is now inlined into the Setup card above.) -->
 
 <!-- Profile drawer (slides in from right when a combatant row is clicked) -->
 <div id="drawer-backdrop" class="hidden fixed inset-0 bg-black/60 z-40 transition-opacity"></div>
@@ -1742,19 +1751,19 @@ function avatarFor(row) {
   });
 })();
 
-// Backfill modal: pull historical usage via the chosen provider's admin API
+// Step 1 inline backfill: pull historical usage via the chosen provider's
+// admin API (or paste CSV). Lives in the setup card; always visible while
+// signed in. Hits /api/import/:provider — idempotent re-runs overwrite.
 (() => {
-  const openBtn = document.getElementById('backfill-open');
-  const modal = document.getElementById('backfill-modal');
-  const backdrop = document.getElementById('backfill-backdrop');
-  const closeBtn = document.getElementById('backfill-close');
   const runBtn = document.getElementById('backfill-run');
   const keyEl = document.getElementById('backfill-key');
   const statusEl = document.getElementById('backfill-status');
   const dayBtns = [...document.querySelectorAll('[data-bf-days]')];
   const provBtns = [...document.querySelectorAll('[data-bf-provider]')];
-  const labelEl = document.getElementById('bf-provider-label');
-  if (!openBtn) return;
+  const daysLabel = document.getElementById('bf-days-label');
+  const daysRow = document.getElementById('bf-days-row');
+  const keyRow = document.getElementById('bf-key-row');
+  if (!runBtn) return;
   let days = 90;
   let provider = 'anthropic';
   const PROV_META = {
@@ -1765,7 +1774,6 @@ function avatarFor(row) {
   function setProvider(p) {
     provider = p;
     const meta = PROV_META[p];
-    labelEl.textContent = meta.label;
     keyEl.placeholder = meta.placeholder;
     keyEl.value = '';
     statusEl.textContent = '';
@@ -1773,8 +1781,9 @@ function avatarFor(row) {
     document.querySelectorAll('[data-bf-help]').forEach(el => {
       el.classList.toggle('hidden', el.dataset.bfHelp !== p);
     });
-    // Hide the admin-key row when CSV is selected (no key needed)
-    document.getElementById('bf-key-row')?.classList.toggle('hidden', !!meta.csv);
+    // CSV path: hide admin-key + days rows (CSV carries its own dates)
+    keyRow?.classList.toggle('hidden', !!meta.csv);
+    daysRow?.classList.toggle('hidden', !!meta.csv);
     provBtns.forEach(b => {
       const on = b.dataset.bfProvider === p;
       b.classList.toggle('border-primary-container', on);
@@ -1785,16 +1794,9 @@ function avatarFor(row) {
   }
   provBtns.forEach(b => b.addEventListener('click', () => setProvider(b.dataset.bfProvider)));
 
-  function show(yes) {
-    modal.classList.toggle('hidden', !yes);
-    backdrop.classList.toggle('hidden', !yes);
-    if (yes) keyEl.focus();
-  }
-  openBtn.addEventListener('click', () => show(true));
-  closeBtn.addEventListener('click', () => show(false));
-  backdrop.addEventListener('click', () => show(false));
   dayBtns.forEach(b => b.addEventListener('click', () => {
     days = Number(b.dataset.bfDays);
+    if (daysLabel) daysLabel.textContent = String(days);
     dayBtns.forEach(other => {
       const on = other === b;
       other.classList.toggle('border-2', on);
@@ -1837,20 +1839,19 @@ function avatarFor(row) {
         throw new Error((j.error || ('HTTP ' + r.status)) + detail);
       }
       statusEl.classList.remove('text-red-400');
-      statusEl.textContent = `✓ ${fmt.format(j.rows_imported)} rows · ${fmtCompact.format(j.totals.input + j.totals.output)} tok · $${(j.totals.cost_cents / 100).toFixed(2)}`;
+      const totalTok = (j.totals.input || 0) + (j.totals.output || 0);
+      statusEl.textContent = `✓ You're in. ${fmtCompact.format(totalTok)} tokens imported · $${(j.totals.cost_cents / 100).toFixed(2)} · scroll ↓`;
       keyEl.value = '';
       if (meta.csv) document.getElementById('bf-csv-text').value = '';
       await fetchBoard();
-      setTimeout(() => show(false), 2000);
+      // Pull the user onto the leaderboard view they just landed on.
+      document.getElementById('scoreboard-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (e) {
       statusEl.classList.add('text-red-400');
       statusEl.textContent = '✘ ' + (e.message || 'failed');
     } finally {
       runBtn.disabled = false;
     }
-  });
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !modal.classList.contains('hidden')) show(false);
   });
 })();
 

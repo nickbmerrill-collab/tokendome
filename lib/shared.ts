@@ -123,8 +123,25 @@ export function normalizeDisplayName(raw: unknown): string | null {
   return s;
 }
 
+// Canonical origin used for OAuth redirect_uri, invite links, OG image URLs,
+// and server-side fetches against our own public surfaces.
+//
+// PUBLIC_URL is preferred — Host headers are attacker-controlled in general,
+// and feeding them into redirect_uri / SSRF targets is a vector
+// (host-header poisoning). The request-derived fallback keeps local dev and
+// preview deploys working when PUBLIC_URL isn't set, but in that path we
+// only honor an x-forwarded-host that matches the configured allowlist if
+// present, otherwise the raw Host header.
+const ALLOWED_HOSTS = (process.env.ALLOWED_HOSTS || '')
+  .split(',').map(s => s.trim()).filter(Boolean);
+
 export function publicUrl(req: VercelRequest): string {
-  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  const fromEnv = process.env.PUBLIC_URL;
+  if (fromEnv) return fromEnv.replace(/\/$/, '');
+  const xfh = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
+  const host = (xfh && (ALLOWED_HOSTS.length === 0 || ALLOWED_HOSTS.includes(xfh)))
+    ? xfh
+    : (req.headers.host || '');
   const proto = req.headers['x-forwarded-proto'] || 'https';
   return `${proto}://${host}`;
 }

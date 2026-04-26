@@ -67,20 +67,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       sql`SELECT model, SUM(input_tokens + output_tokens)::bigint AS total
           FROM token_events WHERE user_id = ${userId} AND ts > ${weekAgo}
           GROUP BY model ORDER BY total DESC LIMIT 3`,
-      // Anyone who out-passed this user in all-time score during the last week
+      // Anyone who out-passed this user in all-time score during the last
+      // week. Ghost users are filtered: their identity must not show up
+      // in another user's email, even though email isn't a public surface.
       sql`WITH ranks AS (
-            SELECT user_id, RANK() OVER (ORDER BY (total_input + total_output) DESC) AS r
-            FROM totals
+            SELECT t.user_id, RANK() OVER (ORDER BY (t.total_input + t.total_output) DESC) AS r
+            FROM totals t
+            JOIN users u ON u.id = t.user_id AND NOT u.hidden
           )
           SELECT u.login, u.display_name
           FROM ranks r
-          JOIN users u ON u.id = r.user_id
+          JOIN users u ON u.id = r.user_id AND NOT u.hidden
           WHERE r.r < (SELECT r FROM ranks WHERE user_id = ${userId})
             AND u.id IN (SELECT user_id FROM token_events WHERE ts > ${weekAgo})
           LIMIT 5`,
       sql`SELECT COALESCE(s.display_name, s.login) AS sender, tt.message, tt.created_at
           FROM trash_talk tt
-          JOIN users s ON s.id = tt.from_user_id
+          JOIN users s ON s.id = tt.from_user_id AND NOT s.hidden
           WHERE tt.to_user_id = ${userId} AND tt.created_at > ${weekAgo}
           ORDER BY tt.created_at DESC LIMIT 10`,
     ]);
@@ -104,11 +107,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
 ${topModelRows.length ? `<h3 style="font-size: 11px; text-transform: uppercase; letter-spacing: .2em; color: #64748B; margin: 24px 0 8px;">Top models</h3>
 <ul style="padding-left: 16px; margin: 0;">
-${(topModelRows as any[]).map(m => `<li style="font-family: ui-monospace, monospace; font-size: 13px;">${m.model} — ${Number(m.total).toLocaleString()} tok</li>`).join('')}
+${(topModelRows as any[]).map(m => `<li style="font-family: ui-monospace, monospace; font-size: 13px;">${escapeHtml(String(m.model))} — ${Number(m.total).toLocaleString()} tok</li>`).join('')}
 </ul>` : ''}
 
 ${passedByRows.length ? `<h3 style="font-size: 11px; text-transform: uppercase; letter-spacing: .2em; color: #64748B; margin: 24px 0 8px;">Combatants ahead of you</h3>
-<p style="margin: 0; font-size: 13px;">${(passedByRows as any[]).map(r => '@' + (r.display_name || r.login)).join(' · ')}</p>` : ''}
+<p style="margin: 0; font-size: 13px;">${(passedByRows as any[]).map(r => '@' + escapeHtml(String(r.display_name || r.login))).join(' · ')}</p>` : ''}
 
 ${trashRows.length ? `<h3 style="font-size: 11px; text-transform: uppercase; letter-spacing: .2em; color: #64748B; margin: 24px 0 8px;">Trash talk this week</h3>
 ${(trashRows as any[]).map(t => `<blockquote style="border-left: 3px solid #facc15; padding: 4px 12px; margin: 8px 0; color: #475569; font-size: 13px;">"${escapeHtml(t.message)}" <span style="opacity:.6">— @${escapeHtml(t.sender)}</span></blockquote>`).join('')}` : ''}

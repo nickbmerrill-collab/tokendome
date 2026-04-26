@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import * as crypto from 'node:crypto';
 import { db, now, hmacHex, sha256Hex } from '../lib/shared';
 import { costCents } from '../lib/pricing';
 
@@ -20,12 +21,31 @@ type IncomingEvent = {
 // fails the signature check.
 export const config = { api: { bodyParser: false } };
 
-async function readRawBody(req: VercelRequest): Promise<string> {
+const BODY_LIMIT = 512 * 1024; // 512 KB; ~ample for 500 compact events
+const DRIFT_MS = 60_000;
+const MAX_BATCH = 500;
+const MAX_TOKENS_PER_FIELD = 2_000_000;
+
+async function readRawBody(req: VercelRequest, limit: number): Promise<string> {
   const chunks: Buffer[] = [];
+  let total = 0;
   for await (const chunk of req as any) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const b = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    total += b.length;
+    if (total > limit) {
+      const e: any = new Error('body too large');
+      e.status = 413;
+      throw e;
+    }
+    chunks.push(b);
   }
   return Buffer.concat(chunks).toString('utf8');
+}
+
+function timingSafeEqualHex(a: string, b: string): boolean {
+  if (!/^[0-9a-f]+$/i.test(a) || !/^[0-9a-f]+$/i.test(b)) return false;
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -35,40 +55,68 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const ts = req.headers['x-ta-ts'] as string | undefined;
   const sig = req.headers['x-ta-sig'] as string | undefined;
   if (!uid || !ts || !sig) return res.status(400).send('missing headers');
-  if (Math.abs(now() - Number(ts)) > 60_000) return res.status(400).send('stale');
+  const tsNum = Number(ts);
+  if (!Number.isFinite(tsNum) || Math.abs(now() - tsNum) > DRIFT_MS) {
+    return res.status(400).send('stale');
+  }
 
   const sql = db();
   const users = await sql`SELECT * FROM users WHERE id = ${Number(uid)}`;
   if (users.length === 0) return res.status(401).send('no user');
   const user = users[0] as any;
 
-  const rawBody = await readRawBody(req);
+  let rawBody: string;
+  try {
+    rawBody = await readRawBody(req, BODY_LIMIT);
+  } catch (e: any) {
+    return res.status(e.status || 500).send(e.message || 'read failed');
+  }
 
   const bodyHash = sha256Hex(rawBody);
   const expected = hmacHex(user.agent_token, `${ts}.${bodyHash}`);
-  if (expected.length !== sig.length || expected !== sig) {
+  if (!timingSafeEqualHex(expected, sig)) {
     return res.status(401).send('bad signature');
   }
+
+  // Replay protection. Within the 60s drift window, the same (user, ts,
+  // body_hash) tuple must only be accepted once. We swallow the dupe at
+  // the unique-key level so concurrent retries from a flaky network don't
+  // get double-counted, and a captured/replayed signed body is rejected.
+  const seen = await sql`
+    INSERT INTO ingest_requests (user_id, ts, body_hash, created_at)
+    VALUES (${user.id}, ${tsNum}, ${bodyHash}, ${now()})
+    ON CONFLICT DO NOTHING
+    RETURNING 1
+  `;
+  if ((seen as any[]).length === 0) return res.status(409).send('replay');
 
   let payload: { events: IncomingEvent[] };
   try { payload = JSON.parse(rawBody); }
   catch { return res.status(400).send('bad json'); }
   if (!Array.isArray(payload.events)) return res.status(400).send('no events');
   if (payload.events.length === 0) return res.json({ ok: true, accepted: 0 });
-  if (payload.events.length > 500) return res.status(413).send('batch too large');
+  if (payload.events.length > MAX_BATCH) return res.status(413).send('batch too large');
 
-  const MAX = 2_000_000;
-  let totalIn = 0, totalOut = 0, totalLocal = 0, totalCost = 0;
+  // Pre-validate the entire batch before any DB write — a single bad event
+  // rejects the whole batch rather than silently dropping it. Caps are hard
+  // rejects (413), not clamps; matches the public claim.
   const clean: (IncomingEvent & { cost_cents: number })[] = [];
+  let totalIn = 0, totalOut = 0, totalLocal = 0, totalCost = 0;
   for (const e of payload.events) {
-    const inp = Math.max(0, Math.min(MAX, (e.input_tokens | 0)));
-    const out = Math.max(0, Math.min(MAX, (e.output_tokens | 0)));
+    const inp = Number(e.input_tokens);
+    const out = Number(e.output_tokens);
+    if (!Number.isInteger(inp) || !Number.isInteger(out) || inp < 0 || out < 0) {
+      return res.status(400).send('non-integer or negative token field');
+    }
+    if (inp > MAX_TOKENS_PER_FIELD || out > MAX_TOKENS_PER_FIELD) {
+      return res.status(413).send('event too large');
+    }
     if (inp === 0 && out === 0) continue;
-    const cr = ((e.cache_read_tokens ?? 0) | 0);
-    const cw = ((e.cache_write_tokens ?? 0) | 0);
-    const rt = ((e.reasoning_tokens ?? 0) | 0);
-    const provider = String(e.provider).slice(0, 32);
-    const model = String(e.model).slice(0, 64);
+    const cr = Math.max(0, Number(e.cache_read_tokens) | 0);
+    const cw = Math.max(0, Number(e.cache_write_tokens) | 0);
+    const rt = Math.max(0, Number(e.reasoning_tokens) | 0);
+    const provider = String(e.provider || '').slice(0, 32);
+    const model = String(e.model || '').slice(0, 64);
     const cost = e.is_local ? 0 : costCents(provider, model, inp, out, cr, cw);
     // CAREFUL: don't use `| 0` on ts — Date.now() doesn't fit in int32 and
     // gets truncated to a negative number, which silently breaks all

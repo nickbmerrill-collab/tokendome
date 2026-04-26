@@ -87,3 +87,30 @@ CREATE TABLE IF NOT EXISTS totals (
   updated_at BIGINT NOT NULL
 );
 
+-- Replay protection for /api/ingest. The HMAC + 60s drift window bounds the
+-- attack surface; this table closes the hole inside the window. Insert-
+-- before-accept: a signed (ts, body_hash) tuple per user can only succeed
+-- once. Older rows can be GC'd by a sweep — the unique key only matters
+-- inside the drift window.
+CREATE TABLE IF NOT EXISTS ingest_requests (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  ts BIGINT NOT NULL,
+  body_hash TEXT NOT NULL,
+  created_at BIGINT NOT NULL,
+  PRIMARY KEY (user_id, ts, body_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_ingest_requests_created ON ingest_requests(created_at);
+
+-- Per-(user, provider, source) lock so concurrent admin imports cannot race
+-- the "delete prior + insert new + recompute totals" pattern and double-
+-- count. Row inserted on import start, deleted on finally; ON CONFLICT DO
+-- NOTHING means second concurrent caller bounces (HTTP 409). Stale rows
+-- older than the import timeout can be GC'd.
+CREATE TABLE IF NOT EXISTS import_locks (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL,
+  source TEXT NOT NULL,
+  created_at BIGINT NOT NULL,
+  PRIMARY KEY (user_id, provider, source)
+);
+

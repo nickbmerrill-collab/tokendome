@@ -189,6 +189,39 @@ function parseFromCSV(csv: string, provider: string): { rows: Row[]; headersSeen
 
 // ─── Shared write path ───────────────────────────────────────────────────────
 
+// Stale-lock TTL. Imports that exceed this without releasing are treated
+// as crashed and the lock can be reclaimed. Anthropic backfill of 365 days
+// pages typically completes well under a minute; 5 minutes is generous.
+const IMPORT_LOCK_TTL_MS = 5 * 60 * 1000;
+
+async function acquireImportLock(userId: number, provider: string, source: string): Promise<boolean> {
+  const sql = db();
+  const t = now();
+  // Reclaim stale locks first so a crashed import doesn't permanently
+  // block the user. The PK on (user_id, provider, source) means we either
+  // refresh the timestamp on a stale row or no-op on a live one.
+  await sql`
+    DELETE FROM import_locks
+    WHERE user_id = ${userId} AND provider = ${provider} AND source = ${source}
+      AND created_at < ${t - IMPORT_LOCK_TTL_MS}
+  `;
+  const acq = await sql`
+    INSERT INTO import_locks (user_id, provider, source, created_at)
+    VALUES (${userId}, ${provider}, ${source}, ${t})
+    ON CONFLICT DO NOTHING
+    RETURNING 1
+  `;
+  return (acq as any[]).length > 0;
+}
+
+async function releaseImportLock(userId: number, provider: string, source: string): Promise<void> {
+  const sql = db();
+  await sql`
+    DELETE FROM import_locks
+    WHERE user_id = ${userId} AND provider = ${provider} AND source = ${source}
+  `;
+}
+
 async function applyImport(userId: number, provider: string, source: string, rows: Row[]): Promise<{ totalIn: number; totalOut: number; totalCost: number }> {
   const sql = db();
   await sql`DELETE FROM token_events WHERE user_id = ${userId} AND source = ${source} AND provider = ${provider}`;
@@ -241,6 +274,27 @@ async function applyImport(userId: number, provider: string, source: string, row
 
 // ─── Dispatch ────────────────────────────────────────────────────────────────
 
+// Run an import path with a (user, provider, source) lock so concurrent
+// callers can't race the delete/insert/recompute pattern in applyImport
+// and end up double-counting. The lock is released in finally even when
+// the upstream Admin API or DB throws.
+async function withImportLock<T>(
+  userId: number, provider: string, source: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const got = await acquireImportLock(userId, provider, source);
+  if (!got) {
+    const e: any = new Error('another import is already running for this provider — try again in a minute');
+    e.status = 409;
+    throw e;
+  }
+  try {
+    return await fn();
+  } finally {
+    await releaseImportLock(userId, provider, source);
+  }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'method' });
   const user = await getCurrentUser(req);
@@ -256,9 +310,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!adminKey.startsWith('sk-ant-admin01-')) {
         return res.status(400).json({ error: 'expected an Anthropic Admin API key (sk-ant-admin01-…). Generate at console.anthropic.com → Settings → API Keys → Create Admin Key.' });
       }
-      const { rows, meta } = await fetchAnthropic(adminKey, days);
-      const totals = await applyImport(user.id, 'anthropic', 'admin_import', rows);
-      return res.json({ ok: true, days, buckets_seen: meta.buckets_seen, rows_imported: rows.length, totals: { input: totals.totalIn, output: totals.totalOut, cost_cents: totals.totalCost } });
+      const result = await withImportLock(user.id, 'anthropic', 'admin_import', async () => {
+        const { rows, meta } = await fetchAnthropic(adminKey, days);
+        const totals = await applyImport(user.id, 'anthropic', 'admin_import', rows);
+        return { rows, meta, totals };
+      });
+      return res.json({ ok: true, days, buckets_seen: result.meta.buckets_seen, rows_imported: result.rows.length, totals: { input: result.totals.totalIn, output: result.totals.totalOut, cost_cents: result.totals.totalCost } });
     }
     if (p === 'openai') {
       const adminKey = String(body.admin_key || '').trim();
@@ -266,9 +323,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!adminKey.startsWith('sk-')) {
         return res.status(400).json({ error: 'expected an OpenAI admin key (sk-…) with org-admin scope. Generate at platform.openai.com → Settings → Admin keys.' });
       }
-      const { rows, meta } = await fetchOpenAI(adminKey, days);
-      const totals = await applyImport(user.id, 'openai', 'admin_import', rows);
-      return res.json({ ok: true, days, buckets_seen: meta.buckets_seen, rows_imported: rows.length, totals: { input: totals.totalIn, output: totals.totalOut, cost_cents: totals.totalCost } });
+      const result = await withImportLock(user.id, 'openai', 'admin_import', async () => {
+        const { rows, meta } = await fetchOpenAI(adminKey, days);
+        const totals = await applyImport(user.id, 'openai', 'admin_import', rows);
+        return { rows, meta, totals };
+      });
+      return res.json({ ok: true, days, buckets_seen: result.meta.buckets_seen, rows_imported: result.rows.length, totals: { input: result.totals.totalIn, output: result.totals.totalOut, cost_cents: result.totals.totalCost } });
     }
     if (p === 'csv') {
       const csv = String(body.csv || '');
@@ -279,11 +339,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       const { rows } = parseFromCSV(csv, csvProvider);
       if (rows.length === 0) return res.status(400).json({ error: 'No usable rows after parsing — check that token columns are numeric and date column parses.' });
-      const totals = await applyImport(user.id, csvProvider, 'csv_import', rows);
+      const totals = await withImportLock(user.id, csvProvider, 'csv_import', async () => {
+        return await applyImport(user.id, csvProvider, 'csv_import', rows);
+      });
       return res.json({ ok: true, provider: csvProvider, rows_imported: rows.length, totals: { input: totals.totalIn, output: totals.totalOut, cost_cents: totals.totalCost } });
     }
     return res.status(400).json({ error: 'unknown provider — use ?p=anthropic|openai|csv' });
   } catch (e: any) {
-    return res.status(e.status || 500).json({ error: e.message || 'failed', headers_seen: e.headersSeen, upstream: e.upstream });
+    // Don't leak upstream provider response bodies to the client. Audit
+    // flagged the previous behavior (passing `e.upstream` through) as info-
+    // disclosure when admin keys are wrong, expired, or rate-limited.
+    return res.status(e.status || 500).json({
+      error: e.message || 'failed',
+      headers_seen: e.headersSeen,
+    });
   }
 }

@@ -104,20 +104,20 @@ tailwind.config = {
     <h2 class="text-3xl font-headline font-black italic uppercase">Why you can trust the numbers</h2>
     <div class="grid md:grid-cols-2 gap-4">
       <div class="bg-surface-container-low border border-outline-variant/20 p-5 space-y-2">
-        <p class="font-headline font-bold uppercase text-sm">No manual input</p>
-        <p class="text-sm text-on-surface-variant">There is no "submit your token count" form. The only way to add to your total is to actually call a real provider through the agent or SDK. The provider's own usage field is the source of truth.</p>
+        <p class="font-headline font-bold uppercase text-sm">Provider-anchored</p>
+        <p class="text-sm text-on-surface-variant">The agent and SDK never re-tokenize — they read the provider's own <code class="font-data text-primary-container">usage</code> field. The Anthropic and OpenAI Admin-API backfill paths pull straight from your billing record, so you can't fabricate those rows.</p>
       </div>
       <div class="bg-surface-container-low border border-outline-variant/20 p-5 space-y-2">
-        <p class="font-headline font-bold uppercase text-sm">HMAC-signed events</p>
-        <p class="text-sm text-on-surface-variant">Every event is signed with <code class="font-data text-primary-container">HMAC-SHA256(agent_token, ts.sha256(body))</code>. The server rejects events with a stale timestamp (&gt;60s drift) or a bad signature. You can't replay or forge events for someone else's account.</p>
+        <p class="font-headline font-bold uppercase text-sm">HMAC-signed, replay-rejected</p>
+        <p class="text-sm text-on-surface-variant">Every event is signed with <code class="font-data text-primary-container">HMAC-SHA256(agent_token, ts.sha256(body))</code>. Stale (&gt; 60s drift), unsigned, and replayed payloads are rejected — the server stores <code class="font-data text-primary-container">(user, ts, body_hash)</code> and only accepts each tuple once. You can't forge events for someone else's account.</p>
       </div>
       <div class="bg-surface-container-low border border-outline-variant/20 p-5 space-y-2">
         <p class="font-headline font-bold uppercase text-sm">Open source</p>
         <p class="text-sm text-on-surface-variant">The agent and SDK shims are open source (Apache 2.0). Read the file that builds the event payload — it's about 30 lines. If you spot something we're sending that shouldn't be sent, file an issue and we'll cut a release that day.</p>
       </div>
       <div class="bg-surface-container-low border border-outline-variant/20 p-5 space-y-2">
-        <p class="font-headline font-bold uppercase text-sm">Server-side caps</p>
-        <p class="text-sm text-on-surface-variant">Ingest rejects single events &gt; 2M tokens or batches &gt; 500 events. Future: per-user rate limits and a remote-attestation challenge that pings your agent with a nonce; if you can't echo it back in 2s, your recent events decay.</p>
+        <p class="font-headline font-bold uppercase text-sm">Honest about the gap</p>
+        <p class="text-sm text-on-surface-variant">Ingest rejects events &gt; 2M tokens, batches &gt; 500 events, and bodies &gt; 512 KB. But a user with their own valid agent token can still hand-craft <code class="font-data text-primary-container">/api/ingest</code> calls with whatever numbers they want — the leaderboard is honor-system at the user level. The Admin-API import is the only path anchored to data you can't fabricate. <span class="text-on-surface">Planned:</span> remote-attestation challenge.</p>
       </div>
     </div>
   </section>

@@ -67,9 +67,9 @@ your app  ──►  localhost or SDK shim  ──►  upstream provider
                            (prompt/response bodies NEVER leave your machine)
 ```
 
-- **Accurate.** We never re-tokenize. We read the provider's own `usage` field — the same numbers you're billed on.
+- **Accurate at the source.** We never re-tokenize. The agent and SDK shims read the provider's own `usage` field — the same numbers you're billed on. The Anthropic/OpenAI Admin-API backfill goes one step further and pulls directly from the provider's billing record.
 - **Safe.** API keys pass through directly to the upstream. Prompts and completions never reach the Tokendome server. Only counts.
-- **Tamper-evident.** Every event is `HMAC-SHA256(agent_token, ts.sha256(body))`. The server rejects events with > 60s clock drift or a bad signature.
+- **Tamper-evident, not cheat-proof.** Every event is `HMAC-SHA256(agent_token, ts.sha256(body))`. Stale (> 60s drift), unsigned, replayed (same `ts.body_hash` reused), and oversized events are rejected. *But:* a user with their own valid agent token can still hand-craft `/api/ingest` payloads with whatever numbers they want — the leaderboard is honor-system at the user level. The Admin-API import path is the only one anchored to billing data the user can't fabricate.
 - **Open source.** This repo. Read [`agent/src/tokendome.ts`](agent/src/tokendome.ts) — the function that builds the event payload is ~30 lines.
 
 Full diagram + wire format at [tokendome.vercel.app/how-it-works.html](https://tokendome.vercel.app/how-it-works.html).
@@ -106,13 +106,14 @@ Anyone who clicks it after signing in joins automatically. Your dome's leaderboa
 
 ## Anti-cheat
 
-Honor-system MVP, with a few real teeth:
+Honor-system at the user level, with a few real teeth:
 
 - Open source agent + SDK; you can audit exactly what's sent
-- HMAC-signed events, server rejects stale or unsigned
-- Server caps single events > 2M tokens, batches > 500 events
-- Re-importable historical (Anthropic Admin API) is provider-scoped and idempotent — no double-counting
-- *Planned:* remote-attestation challenge (server pings agent with nonce, agent must echo back in 2s)
+- HMAC-signed events, server rejects stale (> 60s drift), unsigned, or replayed (`(user, ts, body_hash)` is unique inside the drift window)
+- Body size cap (512 KB) on raw ingest; per-batch cap of 500 events; per-event cap of 2M input + 2M output tokens — over the cap is rejected (HTTP 413), not clamped
+- Per-(user, provider, source) lock on Admin-API and CSV imports — concurrent re-imports can't double-count
+- Anthropic / OpenAI Admin-API backfill pulls from the provider's billing record and is provider-scoped + idempotent on (user, provider, source)
+- *Planned:* remote-attestation challenge (server pings agent with nonce, agent must echo back in 2s) — until then, anyone with their own valid agent token can post arbitrary numbers, so treat ranks as competitive but not adversarial.
 
 ---
 

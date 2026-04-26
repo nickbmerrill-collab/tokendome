@@ -106,7 +106,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     `;
     return res.json({
       ok: true, slug: d.slug, name: d.name, invite_code: d.invite_code,
-      invite_url: `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers['x-forwarded-host'] || req.headers.host}/?dome=${d.slug}&invite=${d.invite_code}`,
+      invite_url: `${publicUrl(req)}/?dome=${d.slug}&invite=${d.invite_code}`,
     });
   }
 
@@ -149,10 +149,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 
 // ─── Public dome view: ?og=1 (SVG) and ?html=1 (SPA shell with og meta) ─────
+//
+// Domes are private friend groups. The shareable URL form
+// /dome/<slug>?invite=<code> grants preview access to anyone who has the
+// invite code; without it, we still serve a shell so the URL doesn't 404
+// for unfurl crawlers, but we redact membership/handle/total data so a
+// slug guess can't enumerate a private leaderboard.
 async function publicDomeView(req: VercelRequest, res: VercelResponse, slug: string) {
   const sql = db();
   const found = await sql`
-    SELECT d.id, d.name, d.slug,
+    SELECT d.id, d.name, d.slug, d.invite_code,
            (SELECT COUNT(*)::int FROM dome_members m WHERE m.dome_id = d.id) AS member_count
     FROM domes d
     WHERE d.slug = ${slug}
@@ -161,8 +167,21 @@ async function publicDomeView(req: VercelRequest, res: VercelResponse, slug: str
   if (found.length === 0) return res.status(404).json({ error: 'no such dome' });
   const d: any = found[0];
 
+  // Authorize the preview: caller is a member, OR caller presented the
+  // dome's current invite code on the URL.
+  const me = await getCurrentUser(req);
+  let isMember = false;
+  if (me) {
+    const m = await sql`SELECT 1 FROM dome_members WHERE dome_id = ${d.id} AND user_id = ${me.id} LIMIT 1`;
+    isMember = (m as any[]).length > 0;
+  }
+  const inviteParam = String(req.query.invite || '').trim();
+  const hasInvite = inviteParam !== '' && inviteParam === d.invite_code;
+  const detailed = isMember || hasInvite;
+
   // Pull the top combatants in this dome, scoped through dome_members.
-  const top = await sql`
+  // Only fetched when caller is authorized to see them.
+  const top = detailed ? await sql`
     SELECT COALESCE(u.display_name, u.login) AS handle,
            (t.total_input + t.total_output)::bigint AS total
     FROM totals t
@@ -170,23 +189,30 @@ async function publicDomeView(req: VercelRequest, res: VercelResponse, slug: str
     JOIN dome_members m ON m.user_id = u.id AND m.dome_id = ${d.id}
     ORDER BY total DESC
     LIMIT 5
-  `;
+  ` : [];
   const totalAll = (top as any[]).reduce((s, r) => s + Number(r.total || 0), 0);
+  const memberCountForView = detailed ? d.member_count : 0;
 
   if (req.query.og === '1') {
     res.setHeader('content-type', 'image/svg+xml; charset=utf-8');
-    res.setHeader('cache-control', 'public, max-age=120, stale-while-revalidate=600');
-    res.send(renderDomeOg({ name: d.name, slug: d.slug, members: d.member_count, total: totalAll, top: top as any[] }));
+    res.setHeader('cache-control', detailed
+      ? 'private, max-age=60'
+      : 'public, max-age=120, stale-while-revalidate=600');
+    res.send(renderDomeOg({ name: d.name, slug: d.slug, members: memberCountForView, total: totalAll, top: top as any[], detailed }));
     return;
   }
 
-  // ?html=1: SPA shell with per-dome og tags + auto-set scope on load
+  // ?html=1: SPA shell with per-dome og tags + auto-set scope on load.
+  // Preserve the invite param into the OG image URL so the unfurl rendered
+  // in chat clients shows real numbers when the share link includes the code.
   const base = publicUrl(req);
-  const ogImage = `${base}/api/domes?slug=${encodeURIComponent(d.slug)}&og=1`;
+  const ogImage = `${base}/api/domes?slug=${encodeURIComponent(d.slug)}&og=1${hasInvite ? `&invite=${encodeURIComponent(inviteParam)}` : ''}`;
   const title = `${d.name} · THE TOKENDOME`;
-  const desc = totalAll
-    ? `${totalAll.toLocaleString()} tokens · ${d.member_count} combatant${d.member_count === 1 ? '' : 's'}`
-    : `Private dome on THE TOKENDOME — competitive LLM token leaderboard.`;
+  const desc = detailed
+    ? (totalAll
+        ? `${totalAll.toLocaleString()} tokens · ${memberCountForView} combatant${memberCountForView === 1 ? '' : 's'}`
+        : `Private dome on THE TOKENDOME — competitive LLM token leaderboard.`)
+    : `Private dome on THE TOKENDOME. Sign in or use an invite link to view.`;
   let shell: string;
   try {
     shell = await fetch(`${base}/index.html`).then(r => r.text());
@@ -215,7 +241,7 @@ async function publicDomeView(req: VercelRequest, res: VercelResponse, slug: str
   res.send(out);
 }
 
-function renderDomeOg(o: { name: string; slug: string; members: number; total: number; top: Array<{ handle: string; total: number }> }): string {
+function renderDomeOg(o: { name: string; slug: string; members: number; total: number; top: Array<{ handle: string; total: number }>; detailed: boolean }): string {
   const compact = (n: number) => n >= 1_000_000 ? (n / 1_000_000).toFixed(1) + 'M' : n >= 1_000 ? (n / 1_000).toFixed(1) + 'K' : String(n);
   const rows = o.top.slice(0, 5).map((r, i) => {
     const y = 360 + i * 50;
@@ -236,13 +262,17 @@ function renderDomeOg(o: { name: string; slug: string; members: number; total: n
   <rect x="40" y="40" width="1120" height="6" fill="#facc15"/>
 
   <text x="60"   y="115" class="display" font-size="38" fill="#facc15">⚡ THE TOKENDOME</text>
-  <text x="60"   y="155" class="label"   font-size="16" fill="#94A3B8" letter-spacing="0.3em">PRIVATE DOME · ${o.members} COMBATANT${o.members === 1 ? '' : 'S'}</text>
+  <text x="60"   y="155" class="label"   font-size="16" fill="#94A3B8" letter-spacing="0.3em">${o.detailed ? `PRIVATE DOME · ${o.members} COMBATANT${o.members === 1 ? '' : 'S'}` : 'PRIVATE DOME · INVITE-ONLY'}</text>
 
-  <text x="60"   y="240" class="display" font-size="78" fill="#F8FAFC">${escapeXml(o.name).slice(0, 36)}</text>
-  <text x="60"   y="285" class="data"    font-size="36" fill="#facc15">${o.total.toLocaleString()} <tspan class="label" font-size="20" fill="#94A3B8" letter-spacing="0.25em">TOK BURNED COLLECTIVELY</tspan></text>
+  <text x="60"   y="240" class="display" font-size="78" fill="#F8FAFC">${o.detailed ? escapeXml(o.name).slice(0, 36) : 'PRIVATE DOME'}</text>
+  <text x="60"   y="285" class="data"    font-size="36" fill="#facc15">${o.detailed
+        ? `${o.total.toLocaleString()} <tspan class="label" font-size="20" fill="#94A3B8" letter-spacing="0.25em">TOK BURNED COLLECTIVELY</tspan>`
+        : `<tspan class="label" font-size="20" fill="#94A3B8" letter-spacing="0.25em">SIGN IN OR USE AN INVITE LINK TO ENTER</tspan>`}</text>
 
   <rect x="60" y="320" width="1080" height="2" fill="#facc15" opacity="0.4"/>
-  ${rows || `<text x="60" y="430" class="label" font-size="20" fill="#475569">FIRST COMBATANT TAKES THE CROWN UNCONTESTED</text>`}
+  ${o.detailed
+      ? (rows || `<text x="60" y="430" class="label" font-size="20" fill="#475569">FIRST COMBATANT TAKES THE CROWN UNCONTESTED</text>`)
+      : `<text x="60" y="430" class="label" font-size="20" fill="#475569">DETAILS HIDDEN — INVITE-ONLY</text>`}
 
   <text x="60"   y="600" class="label" font-size="14" fill="#475569" letter-spacing="0.3em">TOKENDOME.VERCEL.APP/DOME/${escapeXml(o.slug.toUpperCase())}</text>
 </svg>`;

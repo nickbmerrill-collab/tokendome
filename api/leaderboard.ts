@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { db, now } from '../lib/shared';
+import { db, now, getCurrentUser } from '../lib/shared';
 
 // Anonymization rule: every public-facing query returns the user's chosen
 // pseudonym (display_name) when set, falling back to their GitHub login.
@@ -22,18 +22,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   let useDome = false;
   let memberIds: number[] = [];
   if (domeSlug) {
+    // Private domes are member-only. Require signed-in caller AND require
+    // that the caller is a member. Indistinguishable 404s for non-existent
+    // domes vs. domes the caller isn't in, so a slug never confirms its
+    // own existence to outsiders.
+    const me = await getCurrentUser(req);
+    if (!me) return res.status(401).json({ error: 'sign in to view a dome' });
     const rows = await sql`
       SELECT m.user_id FROM dome_members m
       JOIN domes d ON d.id = m.dome_id
       WHERE d.slug = ${domeSlug}
     `;
-    if (rows.length === 0) {
-      // Either the dome doesn't exist or has zero members. We treat both
-      // the same (404) so a non-member can't probe membership presence.
-      return res.status(404).json({ error: 'no such dome' });
-    }
+    if (rows.length === 0) return res.status(404).json({ error: 'no such dome' });
+    const memberSet = new Set((rows as any[]).map(r => r.user_id as number));
+    if (!memberSet.has(me.id)) return res.status(404).json({ error: 'no such dome' });
     useDome = true;
-    memberIds = (rows as any[]).map(r => r.user_id);
+    memberIds = [...memberSet];
   }
 
   // Fire all rollups in parallel — Neon serverless handles N tiny queries

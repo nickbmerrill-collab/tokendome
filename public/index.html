@@ -753,6 +753,14 @@ tailwind.config = {
 </template>
 
 <script>
+// Canonical-host bounce. The Vercel deployment URL stays reachable so the
+// heyelab.com Next.js rewrite can proxy /tokendome/* into it, but human
+// visitors should land on the canonical heyelab.com/tokendome URL.
+// Bouncing only the document load (not the API calls the rewrite makes)
+// keeps the proxy loop-free.
+if (location.host === 'tokendome.vercel.app') {
+  location.replace('https://heyelab.com/tokendome' + location.pathname + location.search + location.hash);
+}
 // Mount-point detection. Tokendome can be served at the origin root (e.g.
 // tokendome.vercel.app) OR under a path prefix (e.g. heyelab.com/tokendome).
 // All API calls and internal links are built off BASE so the same code

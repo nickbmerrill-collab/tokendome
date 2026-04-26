@@ -39,6 +39,11 @@ tailwind.config = {
   .font-headline { font-family: 'Space Grotesk', sans-serif; }
 </style>
 <script>
+// Bounce direct hits on the Vercel URL to the canonical heyelab.com path.
+// (Must come before any further script work — bail out cleanly.)
+if (location.host === 'tokendome.vercel.app') {
+  location.replace('https://heyelab.com/tokendome' + location.pathname + location.search + location.hash);
+}
 // Same mount-point detection as the main page so /tokendome/how-it-works.html
 // links back to /tokendome/ and not the heyelab.com root.
 (() => {

@@ -1,6 +1,6 @@
 # ⚡ THE TOKENDOME
 
-**Live at [tokendome.vercel.app](https://tokendome.vercel.app)** — *two devs enter, one leaderboard leaves.*
+**Live at [heyelab.com/tokendome](https://heyelab.com/tokendome)** — *two devs enter, one leaderboard leaves.*
 
 A competitive leaderboard for LLM token usage. Model-agnostic (OpenAI, Anthropic, Google, Ollama, anything OpenAI-compat), proxy- or SDK-verified, no manual input. Your prompts never leave your machine.
 
@@ -22,14 +22,14 @@ import Anthropic from '@tokendome/anthropic';
 ```
 
 ```bash
-npm i https://tokendome.vercel.app/tokendome-anthropic.tgz
-export TOKENDOME_TOKEN=<your-token>   # grab at https://tokendome.vercel.app
+npm i https://heyelab.com/tokendome/tokendome-anthropic.tgz
+export TOKENDOME_TOKEN=<your-token>   # grab at https://heyelab.com/tokendome
 ```
 
 OpenAI symmetric:
 
 ```bash
-npm i https://tokendome.vercel.app/tokendome-openai.tgz
+npm i https://heyelab.com/tokendome/tokendome-openai.tgz
 ```
 
 ```ts
@@ -41,9 +41,9 @@ The shim re-exports the official SDK and wraps `messages.create` / `chat.complet
 ### B. Local CLI proxy (any provider, any language, any local model)
 
 ```bash
-curl -fsSL https://tokendome.vercel.app/install.sh | bash
+curl -fsSL https://heyelab.com/tokendome/install.sh | bash
 export PATH="$HOME/.tokendome:$PATH"
-tokendome login <your-token> https://tokendome.vercel.app
+tokendome login <your-token> https://heyelab.com/tokendome
 tokendome start
 
 # point your tools at it
@@ -72,7 +72,7 @@ your app  ──►  localhost or SDK shim  ──►  upstream provider
 - **Tamper-evident, not cheat-proof.** Every event is `HMAC-SHA256(agent_token, ts.sha256(body))`. Stale (> 60s drift), unsigned, replayed (same `ts.body_hash` reused), and oversized events are rejected. *But:* a user with their own valid agent token can still hand-craft `/api/ingest` payloads with whatever numbers they want — the leaderboard is honor-system at the user level. The Admin-API import path is the only one anchored to billing data the user can't fabricate.
 - **Open source.** This repo. Read [`agent/src/tokendome.ts`](agent/src/tokendome.ts) — the function that builds the event payload is ~30 lines.
 
-Full diagram + wire format at [tokendome.vercel.app/how-it-works.html](https://tokendome.vercel.app/how-it-works.html).
+Full diagram + wire format at [heyelab.com/tokendome/how-it-works.html](https://heyelab.com/tokendome/how-it-works.html).
 
 ---
 
@@ -99,7 +99,7 @@ In **Settings** (cog in the header):
 Public leaderboard not your style? Create a dome and share the invite link:
 
 ```
-https://tokendome.vercel.app/?dome=<slug>&invite=<code>
+https://heyelab.com/tokendome/?dome=<slug>&invite=<code>
 ```
 
 Anyone who clicks it after signing in joins automatically. Your dome's leaderboard is scoped to its members; ingest is unaffected. Toggle between Global and your domes from the header dropdown.

@@ -289,9 +289,9 @@ async function extractAnthropic(ctx) {
                 return;
             pushEvent({
                 ts: Date.now(),
-                provider: 'anthropic',
+                provider: ctx.provider,
                 model: j.model || ctx.model || 'unknown',
-                is_local: false,
+                is_local: ctx.is_local,
                 input_tokens: u.input_tokens || 0,
                 output_tokens: u.output_tokens || 0,
                 cache_read_tokens: u.cache_read_input_tokens || 0,
@@ -331,8 +331,8 @@ async function extractAnthropic(ctx) {
     }
     if (input || output) {
         pushEvent({
-            ts: Date.now(), provider: 'anthropic',
-            model: model || 'unknown', is_local: false,
+            ts: Date.now(), provider: ctx.provider,
+            model: model || 'unknown', is_local: ctx.is_local,
             input_tokens: input, output_tokens: output,
             cache_read_tokens: cacheR, cache_write_tokens: cacheW,
         });
@@ -341,7 +341,11 @@ async function extractAnthropic(ctx) {
 async function extractOllamaNative(ctx) {
     // Ollama streams NDJSON. Final object has done:true plus `prompt_eval_count`
     // and `eval_count`. Non-stream is a single JSON object with the same fields.
-    const raw = Buffer.concat(ctx.bodyChunks).toString('utf8');
+    // For streaming Ollama the proxy parses NDJSON into ctx.sseEvents and never
+    // populates bodyChunks, so we have to fall through to the parsed-line list.
+    const raw = ctx.bodyChunks.length
+        ? Buffer.concat(ctx.bodyChunks).toString('utf8')
+        : ctx.sseEvents.join('\n');
     const lines = raw.split('\n').filter(Boolean);
     let input = 0, output = 0, model = ctx.model;
     for (const ln of lines) {

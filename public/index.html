@@ -73,12 +73,12 @@ tailwind.config = {
         <nav class="hidden md:flex gap-6 font-headline tracking-tighter uppercase font-bold text-xs">
           <a class="text-[#facc15] border-b-2 border-[#facc15] pb-1" href="#">Arena</a>
           <a class="text-zinc-500 hover:text-zinc-200" href="#coliseum">Leaderboard</a>
-          <a class="text-zinc-500 hover:text-zinc-200" href="/how-it-works.html">How it works</a>
-          <a class="text-zinc-500 hover:text-zinc-200" href="/install.sh">Install</a>
+          <a class="text-zinc-500 hover:text-zinc-200" href="/how-it-works.html" data-href="/how-it-works.html">How it works</a>
+          <a class="text-zinc-500 hover:text-zinc-200" href="/install.sh" data-href="/install.sh">Install</a>
           <a class="text-zinc-500 hover:text-zinc-200" href="https://github.com/nickbmerrill-collab/tokendome" target="_blank" rel="noopener">Source</a>
         </nav>
       </div>
-      <a href="/api/auth/github" class="flex items-center gap-2 px-6 py-2 bg-primary-container text-on-primary-container font-headline font-bold text-xs uppercase tracking-widest rounded-lg hover:brightness-110 active:scale-95 transition-all">
+      <a href="/api/auth/github" data-href="/api/auth/github" class="flex items-center gap-2 px-6 py-2 bg-primary-container text-on-primary-container font-headline font-bold text-xs uppercase tracking-widest rounded-lg hover:brightness-110 active:scale-95 transition-all">
         <span class="material-symbols-outlined text-sm">terminal</span>
         Sign In with GitHub
       </a>
@@ -178,7 +178,7 @@ tailwind.config = {
       <div class="bg-surface-container-high p-8 rounded-lg border-l-4 border-primary-container relative overflow-hidden">
         <h3 class="text-3xl font-black font-headline uppercase italic mb-4">Deploy Your Proxy</h3>
         <p class="text-outline mb-6">Sign in with GitHub, grab your agent token, point your LLM clients at localhost. We handle the rest. Your prompts never leave your machine.</p>
-        <a href="/api/auth/github" class="inline-block bg-primary-container text-on-primary-container px-8 py-4 font-headline font-black uppercase tracking-tighter italic text-xl hover:scale-105 transition-transform active:scale-95">
+        <a href="/api/auth/github" data-href="/api/auth/github" class="inline-block bg-primary-container text-on-primary-container px-8 py-4 font-headline font-black uppercase tracking-tighter italic text-xl hover:scale-105 transition-transform active:scale-95">
           Enter the Dome →
         </a>
         <div class="absolute -bottom-10 -right-10 opacity-5"><span class="material-symbols-outlined text-[180px]">key</span></div>
@@ -592,7 +592,7 @@ tailwind.config = {
 
   <footer class="text-center text-[10px] text-on-surface-variant/70 pt-8 pb-12 font-data uppercase tracking-widest space-y-2">
     <p>prompts never leave your machine · counts come from provider usage fields · no manual input</p>
-    <p><a href="/how-it-works.html" class="text-primary-container hover:underline">how it works</a> · <a href="/install.sh" class="hover:text-on-surface">install.sh</a> · <a href="https://github.com/nickbmerrill-collab/tokendome" target="_blank" rel="noopener" class="hover:text-on-surface">source</a></p>
+    <p><a href="/how-it-works.html" data-href="/how-it-works.html" class="text-primary-container hover:underline">how it works</a> · <a href="/install.sh" data-href="/install.sh" class="hover:text-on-surface">install.sh</a> · <a href="https://github.com/nickbmerrill-collab/tokendome" target="_blank" rel="noopener" class="hover:text-on-surface">source</a></p>
   </footer>
 </div>
 </main>
@@ -753,6 +753,26 @@ tailwind.config = {
 </template>
 
 <script>
+// Mount-point detection. Tokendome can be served at the origin root (e.g.
+// tokendome.vercel.app) OR under a path prefix (e.g. heyelab.com/tokendome).
+// All API calls and internal links are built off BASE so the same code
+// works in both cases. Strip trailing SPA-internal segments — what remains
+// is the mount point.
+const BASE = (() => {
+  let p = location.pathname;
+  p = p.replace(/\/(u|dome)\/[^/]+\/?$/, '');
+  p = p.replace(/\/[^/]*\.html?$/, '');
+  p = p.replace(/\/$/, '');
+  return p;
+})();
+// Convenience: full origin + base for cases where we need an absolute URL
+// (share links, install commands, etc.).
+const ORIGIN_BASE = location.origin + BASE;
+// One-shot pass to rewrite any <a data-href="…"> links the markup left for
+// us so authors don't have to wire each one in JS.
+document.querySelectorAll('[data-href]').forEach(a => { a.href = BASE + a.dataset.href; });
+document.querySelectorAll('form[data-action]').forEach(f => { f.action = BASE + f.dataset.action; });
+
 const PROVIDER_COLORS = {
   openai:    'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
   anthropic: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
@@ -1027,7 +1047,7 @@ function renderDomeSwitcher() {
 }
 async function fetchDomes() {
   try {
-    const r = await fetch('/api/domes').then(r => r.json());
+    const r = await fetch(BASE + '/api/domes').then(r => r.json());
     if (!r.domes) return;
     domesIBelongTo = r.domes;
     const list = document.getElementById('dome-menu-list');
@@ -1055,7 +1075,7 @@ async function fetchDomes() {
 }
 
 async function fetchBoard() {
-  const lburl = '/api/leaderboard' + (domeScope ? '?dome=' + encodeURIComponent(domeScope) : '');
+  const lburl = BASE + '/api/leaderboard' + (domeScope ? '?dome=' + encodeURIComponent(domeScope) : '');
   const r = await fetch(lburl).then(r => r.json());
   if (r.error) {
     if (domeScope) { domeScope = ''; localStorage.removeItem('tokendome_scope'); return fetchBoard(); }
@@ -1089,7 +1109,7 @@ function updateLivePill() {
 // can decide whether to show "talk smack" to viewers looking at someone else.
 let me = null;
 async function fetchMe() {
-  const m = await fetch('/api/me').then(r => r.json());
+  const m = await fetch(BASE + '/api/me').then(r => r.json());
   me = m.authenticated ? m : null;
   const landing = document.getElementById('landing');
   const app = document.getElementById('app');
@@ -1105,7 +1125,7 @@ async function fetchMe() {
   box.innerHTML = '<div class="flex items-center gap-2">'
     + '<img src="' + esc(avatarFor({ login: m.login, avatar_url: m.avatar_url })) + '" class="w-8 h-8 border border-primary-container/30"/>'
     + '<span class="font-headline text-sm font-bold">@' + esc(m.login) + '</span>'
-    + '<form method="POST" action="/api/auth/logout"><button class="text-[10px] text-on-surface-variant underline ml-2">sign out</button></form>'
+    + '<form method="POST" action="' + BASE + '/api/auth/logout"><button class="text-[10px] text-on-surface-variant underline ml-2">sign out</button></form>'
     + '</div>';
   const setup = document.getElementById('setup');
   setup.style.display = 'flex';
@@ -1117,7 +1137,7 @@ async function fetchMe() {
   const inv = params.get('invite');
   const dscope = params.get('dome');
   if (inv && dscope) {
-    fetch('/api/domes?join=1', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ invite_code: inv }) })
+    fetch(BASE + '/api/domes?join=1', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ invite_code: inv }) })
       .then(r => r.json())
       .then(j => {
         if (j.ok) { setDomeScope(j.slug); fetchDomes(); }
@@ -1134,9 +1154,9 @@ async function fetchMe() {
   // sees it. Or, with the agent installed, the SDK auto-discovers from
   // ~/.tokendome/config.json and TOKENDOME_TOKEN isn't needed.)
   document.getElementById('sdk-install-cmd').textContent =
-    'TOKENDOME_TOKEN=' + m.agent_token + ' npm i ' + location.origin + '/tokendome-anthropic.tgz';
+    'TOKENDOME_TOKEN=' + m.agent_token + ' npm i ' + ORIGIN_BASE + '/tokendome-anthropic.tgz';
   document.getElementById('oai-install-cmd').textContent =
-    'TOKENDOME_TOKEN=' + m.agent_token + ' npm i ' + location.origin + '/tokendome-openai.tgz';
+    'TOKENDOME_TOKEN=' + m.agent_token + ' npm i ' + ORIGIN_BASE + '/tokendome-openai.tgz';
 }
 
 // Mint a fresh install code on demand and assemble the CLI one-liner. The
@@ -1153,7 +1173,7 @@ async function refreshInstallCode() {
   btn.disabled = true;
   statusEl.textContent = '· generating…';
   try {
-    const r = await fetch('/api/install', {
+    const r = await fetch(BASE + '/api/install', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
     });
@@ -1161,7 +1181,7 @@ async function refreshInstallCode() {
     if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
     installCodeExpiresAt = Date.now() + (j.expires_in_ms || 5 * 60 * 1000);
     cmdEl.textContent =
-      'curl -fsSL ' + location.origin + '/install.sh'
+      'curl -fsSL ' + ORIGIN_BASE + '/install.sh'
       + ' | TOKENDOME_INSTALL_CODE=' + j.code
       + ' TOKENDOME_SERVICE=1 bash';
     if (installCodeTicker) clearInterval(installCodeTicker);
@@ -1372,7 +1392,7 @@ async function openProfile(login) {
   document.getElementById('drawer-chart').innerHTML = '';
 
   try {
-    const p = await fetch('/api/profile/' + encodeURIComponent(login)).then(r => r.json());
+    const p = await fetch(BASE + '/api/profile/' + encodeURIComponent(login)).then(r => r.json());
     if (p.error) throw new Error(p.error);
     document.getElementById('drawer-avatar').src = avatarFor(p);
     document.getElementById('drawer-login').textContent = p.login.toUpperCase();
@@ -1494,7 +1514,7 @@ document.getElementById('drawer-backdrop')?.addEventListener('click', closeProfi
     statusEl.classList.remove('text-red-400');
     statusEl.textContent = 'sending…';
     try {
-      const r = await fetch('/api/trash-talk', {
+      const r = await fetch(BASE + '/api/trash-talk', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ to_login: target, message }),
@@ -1518,7 +1538,7 @@ document.getElementById('drawer-backdrop')?.addEventListener('click', closeProfi
 
 document.getElementById('drawer-share')?.addEventListener('click', async () => {
   const login = document.getElementById('drawer-login').textContent.toLowerCase();
-  const url = location.origin + '/u/' + encodeURIComponent(login);
+  const url = ORIGIN_BASE + '/u/' + encodeURIComponent(login);
   try {
     await navigator.clipboard.writeText(url);
     const btn = document.getElementById('drawer-share');
@@ -1538,21 +1558,21 @@ async function manageDome(d) {
     : '1) Copy invite URL · 2) Challenge a friend (text + install) · 3) Leave dome';
   const pick = prompt('Manage "' + d.name + '"\n' + choices + '\n\nEnter a number:');
   if (!pick) return;
-  const inviteUrl = location.origin + '/?dome=' + encodeURIComponent(d.slug) + (d.invite_code ? '&invite=' + d.invite_code : '');
+  const inviteUrl = ORIGIN_BASE + '/?dome=' + encodeURIComponent(d.slug) + (d.invite_code ? '&invite=' + d.invite_code : '');
   if (isOwner) {
     if (pick === '1') {
       const name = prompt('New name:', d.name);
       if (!name || !name.trim()) return;
-      const r = await fetch('/api/domes/' + encodeURIComponent(d.slug), { method: 'PATCH', headers: {'content-type':'application/json'}, body: JSON.stringify({ name: name.trim() }) });
+      const r = await fetch(BASE + '/api/domes/' + encodeURIComponent(d.slug), { method: 'PATCH', headers: {'content-type':'application/json'}, body: JSON.stringify({ name: name.trim() }) });
       const j = await r.json();
       if (!r.ok) return alert(j.error || 'failed');
       await fetchDomes();
     } else if (pick === '2') {
       if (!confirm('Rotate the invite code? The old one stops working immediately.')) return;
-      const r = await fetch('/api/domes/' + encodeURIComponent(d.slug), { method: 'PATCH', headers: {'content-type':'application/json'}, body: JSON.stringify({ rotate_invite: true }) });
+      const r = await fetch(BASE + '/api/domes/' + encodeURIComponent(d.slug), { method: 'PATCH', headers: {'content-type':'application/json'}, body: JSON.stringify({ rotate_invite: true }) });
       const j = await r.json();
       if (!r.ok) return alert(j.error || 'failed');
-      try { await navigator.clipboard.writeText(location.origin + '/?dome=' + encodeURIComponent(d.slug) + '&invite=' + j.invite_code); } catch {}
+      try { await navigator.clipboard.writeText(ORIGIN_BASE + '/?dome=' + encodeURIComponent(d.slug) + '&invite=' + j.invite_code); } catch {}
       alert('New code: ' + j.invite_code + '\n(invite URL copied to clipboard)');
       await fetchDomes();
     } else if (pick === '3') {
@@ -1562,7 +1582,7 @@ async function manageDome(d) {
       await challengeFriend(d, inviteUrl);
     } else if (pick === '5') {
       if (!confirm('Permanently delete "' + d.name + '"? Members will be removed.')) return;
-      const r = await fetch('/api/domes/' + encodeURIComponent(d.slug), { method: 'DELETE' });
+      const r = await fetch(BASE + '/api/domes/' + encodeURIComponent(d.slug), { method: 'DELETE' });
       const j = await r.json();
       if (!r.ok) return alert(j.error || 'failed');
       if (domeScope === d.slug) setDomeScope('');
@@ -1576,7 +1596,7 @@ async function manageDome(d) {
       await challengeFriend(d, inviteUrl);
     } else if (pick === '3') {
       if (!confirm('Leave "' + d.name + '"?')) return;
-      const r = await fetch('/api/domes/' + encodeURIComponent(d.slug) + '?leave=1', { method: 'DELETE' });
+      const r = await fetch(BASE + '/api/domes/' + encodeURIComponent(d.slug) + '?leave=1', { method: 'DELETE' });
       const j = await r.json();
       if (!r.ok) return alert(j.error || 'failed');
       if (domeScope === d.slug) setDomeScope('');
@@ -1601,7 +1621,7 @@ Join: ${inviteUrl}
 1) Sign in with GitHub at the link above, copy your agent token from the setup card.
 2) Install the agent + auto-start it as a service:
 
-   curl -fsSL ${location.origin}/install.sh | TOKENDOME_TOKEN=<paste-your-token> TOKENDOME_SERVICE=1 bash
+   curl -fsSL ${ORIGIN_BASE}/install.sh | TOKENDOME_TOKEN=<paste-your-token> TOKENDOME_SERVICE=1 bash
 
 3) Point any of your services at it:
 
@@ -1636,7 +1656,7 @@ Two devs enter. One leaderboard leaves.`;
     menu.classList.add('hidden');
     const name = prompt('Name your dome (e.g. "Friday Night Burners"):');
     if (!name || !name.trim()) return;
-    const r = await fetch('/api/domes', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ name: name.trim() }) });
+    const r = await fetch(BASE + '/api/domes', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ name: name.trim() }) });
     const j = await r.json();
     if (!r.ok) { alert(j.error || 'failed to create dome'); return; }
     await fetchDomes();
@@ -1649,7 +1669,7 @@ Two devs enter. One leaderboard leaves.`;
     menu.classList.add('hidden');
     const code = prompt('Enter invite code:');
     if (!code || !code.trim()) return;
-    const r = await fetch('/api/domes?join=1', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ invite_code: code.trim() }) });
+    const r = await fetch(BASE + '/api/domes?join=1', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ invite_code: code.trim() }) });
     const j = await r.json();
     if (!r.ok) { alert(j.error || 'failed to join'); return; }
     await fetchDomes();
@@ -1725,7 +1745,7 @@ function avatarFor(row) {
     backdrop.classList.toggle('hidden', !yes);
     if (yes) {
       // Fetch the truth fresh so we know real_login + display_name
-      fetch('/api/me').then(r => r.json()).then(m => {
+      fetch(BASE + '/api/me').then(r => r.json()).then(m => {
         if (!m.authenticated) return;
         nameEl.value = m.display_name || '';
         document.getElementById('settings-hidden').checked = !!m.hidden;
@@ -1751,7 +1771,7 @@ function avatarFor(row) {
     const hidden = !!document.getElementById('settings-hidden').checked;
     const email = document.getElementById('settings-email').value.trim();
     try {
-      const r = await fetch('/api/me', {
+      const r = await fetch(BASE + '/api/me', {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ display_name: displayName, hidden, email: email || null }),
@@ -1776,7 +1796,7 @@ function avatarFor(row) {
     statusEl.classList.remove('text-red-400');
     statusEl.textContent = 'rotating…';
     try {
-      const r = await fetch('/api/me', {
+      const r = await fetch(BASE + '/api/me', {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ rotate_token: true }),
@@ -1786,7 +1806,7 @@ function avatarFor(row) {
       statusEl.textContent = '✓ rotated';
       // Surface the new token AND refresh the install-cards in the dashboard
       try { await navigator.clipboard.writeText(j.agent_token); } catch {}
-      alert('New agent token (also copied to clipboard):\n\n' + j.agent_token + '\n\nUpdate every running agent:\n  tokendome login ' + j.agent_token + ' ' + location.origin);
+      alert('New agent token (also copied to clipboard):\n\n' + j.agent_token + '\n\nUpdate every running agent:\n  tokendome login ' + j.agent_token + ' ' + ORIGIN_BASE);
       await fetchMe();
     } catch (e) {
       statusEl.classList.add('text-red-400');
@@ -1816,9 +1836,9 @@ function avatarFor(row) {
   let days = 90;
   let provider = 'anthropic';
   const PROV_META = {
-    anthropic: { label: 'Anthropic', placeholder: 'sk-ant-admin01-…', prefix: 'sk-ant-admin01-', endpoint: '/api/import/anthropic', csv: false },
-    openai:    { label: 'OpenAI',    placeholder: 'sk-…',             prefix: 'sk-',              endpoint: '/api/import/openai',    csv: false },
-    csv:       { label: 'CSV',       placeholder: '',                  prefix: '',                 endpoint: '/api/import/csv',       csv: true  },
+    anthropic: { label: 'Anthropic', placeholder: 'sk-ant-admin01-…', prefix: 'sk-ant-admin01-', endpoint: BASE + '/api/import/anthropic', csv: false },
+    openai:    { label: 'OpenAI',    placeholder: 'sk-…',             prefix: 'sk-',              endpoint: BASE + '/api/import/openai',    csv: false },
+    csv:       { label: 'CSV',       placeholder: '',                  prefix: '',                 endpoint: BASE + '/api/import/csv',       csv: true  },
   };
   function setProvider(p) {
     provider = p;
@@ -1942,13 +1962,13 @@ setInterval(livePoll, 3000);
   const _open = window.openProfile || openProfile;
   window.openProfile = function (login) {
     _open(login);
-    try { history.pushState({ profile: login }, '', '/u/' + encodeURIComponent(login)); } catch {}
+    try { history.pushState({ profile: login }, '', BASE + '/u/' + encodeURIComponent(login)); } catch {}
   };
   const _close = window.closeProfile || closeProfile;
   window.closeProfile = function () {
     _close();
-    if (location.pathname.startsWith('/u/')) {
-      try { history.pushState({}, '', '/'); } catch {}
+    if (location.pathname.startsWith(BASE + '/u/')) {
+      try { history.pushState({}, '', BASE + '/'); } catch {}
     }
   };
   window.addEventListener('popstate', (e) => {

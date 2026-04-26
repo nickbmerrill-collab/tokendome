@@ -38,17 +38,29 @@ tailwind.config = {
   .font-data { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
   .font-headline { font-family: 'Space Grotesk', sans-serif; }
 </style>
+<script>
+// Same mount-point detection as the main page so /tokendome/how-it-works.html
+// links back to /tokendome/ and not the heyelab.com root.
+(() => {
+  let p = location.pathname;
+  p = p.replace(/\/[^/]*\.html?$/, '').replace(/\/$/, '');
+  const BASE = p;
+  document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('[data-href]').forEach(a => { a.href = BASE + a.dataset.href; });
+  });
+})();
+</script>
 </head>
 <body class="min-h-screen">
 
 <header class="border-b border-primary-container/30 bg-surface-container-low px-8 py-4 flex items-center justify-between">
-  <a href="/" class="flex items-center gap-2">
+  <a href="/" data-href="/" class="flex items-center gap-2">
     <span class="material-symbols-outlined text-primary-container">bolt</span>
     <span class="text-2xl font-black tracking-tighter text-primary-container italic font-headline uppercase">⚡ THE TOKENDOME</span>
   </a>
   <div class="flex items-center gap-6">
     <a href="https://github.com/nickbmerrill-collab/tokendome" target="_blank" rel="noopener" class="text-xs font-headline font-bold uppercase tracking-widest text-on-surface-variant hover:text-primary-container">Source on GitHub</a>
-    <a href="/" class="text-xs font-headline font-bold uppercase tracking-widest text-on-surface-variant hover:text-primary-container">← back to leaderboard</a>
+    <a href="/" data-href="/" class="text-xs font-headline font-bold uppercase tracking-widest text-on-surface-variant hover:text-primary-container">← back to leaderboard</a>
   </div>
 </header>
 
@@ -149,7 +161,7 @@ x-ta-sig:  3a4f1c…  // HMAC-SHA256(agent_token, ts.sha256(body))
   </section>
 
   <section class="text-center py-12 border-t border-outline-variant/20">
-    <a href="/" class="inline-block bg-primary-container text-on-primary-container px-8 py-4 font-headline font-black uppercase tracking-tighter italic text-xl hover:scale-105 transition-transform">enter the dome →</a>
+    <a href="/" data-href="/" class="inline-block bg-primary-container text-on-primary-container px-8 py-4 font-headline font-black uppercase tracking-tighter italic text-xl hover:scale-105 transition-transform">enter the dome →</a>
   </section>
 </main>
 

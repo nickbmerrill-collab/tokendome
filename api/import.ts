@@ -11,7 +11,7 @@
  * (user, source, provider), insert new rows, recompute totals.
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { db, now, getCurrentUser } from '../lib/shared';
+import { db, now, getCurrentUser, checkCsrf } from '../lib/shared';
 import { costCents } from '../lib/pricing';
 
 export const config = { api: { bodyParser: { sizeLimit: '2mb' } } };
@@ -19,6 +19,12 @@ export const config = { api: { bodyParser: { sizeLimit: '2mb' } } };
 const MAX_PAGES = 50;
 const MAX_DAYS = 365;
 const MAX_CSV_ROWS = 50_000;
+// Per-row cap for CSV imports. Provider Admin-API daily buckets can
+// legitimately exceed this (an org spending heavily on long contexts),
+// so we don't cap fetched rows. CSV is hand-editable, so applying the
+// same per-event cap as live ingest closes a back-channel for inflating
+// totals via a CSV that wouldn't survive ingest validation.
+const MAX_CSV_TOKENS_PER_ROW = 2_000_000;
 
 type Row = {
   ts: number; provider: string; model: string;
@@ -178,6 +184,11 @@ function parseFromCSV(csv: string, provider: string): { rows: Row[]; headersSeen
     const input = Math.max(0, Math.floor(Number((cells[ixIn] || '0').replace(/[,$ ]/g, '')) || 0));
     const out = Math.max(0, Math.floor(Number((cells[ixOut] || '0').replace(/[,$ ]/g, '')) || 0));
     if (input === 0 && out === 0) continue;
+    if (input > MAX_CSV_TOKENS_PER_ROW || out > MAX_CSV_TOKENS_PER_ROW) {
+      const e: any = new Error(`row ${r} exceeds the 2M tokens-per-row cap for CSV imports`);
+      e.status = 413;
+      throw e;
+    }
     const cacheR = ixCacheR >= 0 ? Math.max(0, Math.floor(Number((cells[ixCacheR] || '0').replace(/[,$ ]/g, '')) || 0)) : 0;
     const cacheW = ixCacheW >= 0 ? Math.max(0, Math.floor(Number((cells[ixCacheW] || '0').replace(/[,$ ]/g, '')) || 0)) : 0;
     const model = (ixModel >= 0 ? (cells[ixModel] || '').trim() : 'unknown').slice(0, 64) || 'unknown';
@@ -297,6 +308,7 @@ async function withImportLock<T>(
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'method' });
+  const csrf = checkCsrf(req); if (csrf) return res.status(csrf.status).json(csrf);
   const user = await getCurrentUser(req);
   if (!user) return res.status(401).json({ error: 'sign in first' });
 

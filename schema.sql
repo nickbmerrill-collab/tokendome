@@ -9,6 +9,12 @@ CREATE TABLE IF NOT EXISTS users (
   agent_token TEXT UNIQUE NOT NULL,
   created_at BIGINT NOT NULL
 );
+-- Pseudonym uniqueness, case-insensitive. Application code already checks for
+-- collisions, but a race could let two concurrent PATCH /api/me requests both
+-- pass the check. The unique index turns that into a clean DB error rather
+-- than two users sharing a public handle.
+CREATE UNIQUE INDEX IF NOT EXISTS users_display_name_lower_unique
+  ON users (lower(display_name)) WHERE display_name IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS token_events (
   id BIGSERIAL PRIMARY KEY,

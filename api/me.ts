@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getCurrentUser, db, publicHandle, normalizeDisplayName, randomHex } from '../lib/shared';
+import { getCurrentUser, db, publicHandle, normalizeDisplayName, randomHex, checkCsrf } from '../lib/shared';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const u = await getCurrentUser(req);
@@ -7,6 +7,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // PATCH /api/me — update profile (currently just display_name)
   if (req.method === 'PATCH' || req.method === 'POST') {
     if (!u) return res.status(401).json({ error: 'sign in first' });
+    const csrf = checkCsrf(req); if (csrf) return res.status(csrf.status).json(csrf);
     const body: any = typeof req.body === 'string' ? safeJSON(req.body) : (req.body || {});
     let displayName: string | null = null;
     if ('display_name' in body) {

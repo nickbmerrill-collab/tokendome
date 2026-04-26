@@ -65,19 +65,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       GROUP BY provider
       ORDER BY total DESC
     `,
-    // Three rank lookups in one shot via window functions
+    // Three rank lookups in one shot via window functions. Hidden users
+    // are excluded so ghost-mode accounts don't influence public ranks
+    // (rank gaps would otherwise hint at how many ghost users are above).
     sql`
       WITH at_rank AS (
-        SELECT user_id, RANK() OVER (ORDER BY (total_input + total_output) DESC) AS r
-        FROM totals
+        SELECT t.user_id, RANK() OVER (ORDER BY (t.total_input + t.total_output) DESC) AS r
+        FROM totals t
+        JOIN users u ON u.id = t.user_id AND NOT u.hidden
       ),
       wk_rank AS (
-        SELECT user_id, RANK() OVER (ORDER BY SUM(input_tokens + output_tokens) DESC) AS r
-        FROM token_events WHERE ts > ${weekAgo} GROUP BY user_id
+        SELECT e.user_id, RANK() OVER (ORDER BY SUM(e.input_tokens + e.output_tokens) DESC) AS r
+        FROM token_events e
+        JOIN users u ON u.id = e.user_id AND NOT u.hidden
+        WHERE e.ts > ${weekAgo}
+        GROUP BY e.user_id
       ),
       lh_rank AS (
-        SELECT user_id, RANK() OVER (ORDER BY local_tokens DESC) AS r
-        FROM totals WHERE local_tokens > 0
+        SELECT t.user_id, RANK() OVER (ORDER BY t.local_tokens DESC) AS r
+        FROM totals t
+        JOIN users u ON u.id = t.user_id AND NOT u.hidden
+        WHERE t.local_tokens > 0
       )
       SELECT
         (SELECT r FROM at_rank WHERE user_id = ${userId})::int AS all_time,

@@ -78,7 +78,10 @@ export function setSessionCookie(res: VercelResponse, token: string) {
     `ta_session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${Math.floor(SESSION_TTL / 1000)}`);
 }
 export function clearSessionCookie(res: VercelResponse) {
-  res.setHeader('Set-Cookie', 'ta_session=; Path=/; Max-Age=0');
+  // Match the security attributes used at set time so browsers reliably
+  // treat this as the same cookie. Plain `Path=/; Max-Age=0` works for
+  // most modern browsers but is brittle.
+  res.setHeader('Set-Cookie', 'ta_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0');
 }
 
 // OAuth state cookie (short-lived, signed)
@@ -105,6 +108,47 @@ export async function getCurrentUser(req: VercelRequest) {
   if (!userId) return null;
   const rows = await db()`SELECT * FROM users WHERE id = ${userId}`;
   return rows[0] as any || null;
+}
+
+// CSRF guard for state-changing endpoints. SameSite=Lax already blocks the
+// common cross-site POST case, but defense-in-depth matters across browser
+// quirks, embedding, and same-site sibling subdomains. Same-origin (Origin
+// header matches publicUrl host) is required; in dev where Origin is
+// missing on some flows we fall back to checking Referer.
+//
+// Returns null on success, or an HTTP-error tuple on failure that the
+// caller should send back to the client.
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+export function checkCsrf(req: VercelRequest): { status: number; error: string } | null {
+  const method = (req.method || 'GET').toUpperCase();
+  if (SAFE_METHODS.has(method)) return null;
+  const expectedHost = (() => {
+    try { return new URL(publicUrl(req)).host; } catch { return ''; }
+  })();
+  const origin = String(req.headers.origin || '').trim();
+  if (origin) {
+    try {
+      if (new URL(origin).host !== expectedHost) {
+        return { status: 403, error: 'cross-origin request blocked' };
+      }
+      return null;
+    } catch {
+      return { status: 403, error: 'malformed origin' };
+    }
+  }
+  // No Origin header (some browsers don't send it on same-origin POST).
+  // Fall back to Referer; reject if neither is present so blind tools
+  // can't trip CSRF endpoints.
+  const referer = String(req.headers.referer || '').trim();
+  if (!referer) return { status: 403, error: 'missing origin' };
+  try {
+    if (new URL(referer).host !== expectedHost) {
+      return { status: 403, error: 'cross-origin request blocked' };
+    }
+  } catch {
+    return { status: 403, error: 'malformed referer' };
+  }
+  return null;
 }
 
 /** What name to show publicly: the user's chosen pseudonym, or their GitHub login as fallback. */

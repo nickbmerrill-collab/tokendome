@@ -8,7 +8,7 @@
  * Body: { to_login: string, message: string }
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { db, now, getCurrentUser } from '../lib/shared';
+import { db, now, getCurrentUser, checkCsrf } from '../lib/shared';
 
 export const config = { api: { bodyParser: { sizeLimit: '4kb' } } };
 
@@ -21,6 +21,7 @@ const COOLDOWN_MS = 5_000;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'method' });
+  const csrf = checkCsrf(req); if (csrf) return res.status(csrf.status).json(csrf);
 
   const me = await getCurrentUser(req);
   if (!me) return res.status(401).json({ error: 'sign in to trash-talk' });

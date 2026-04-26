@@ -17,7 +17,7 @@
  * REST-shaped URLs from the frontend keep working.
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { db, now, getCurrentUser, randomHex, publicUrl } from '../lib/shared';
+import { db, now, getCurrentUser, randomHex, publicUrl, checkCsrf } from '../lib/shared';
 
 export const config = { api: { bodyParser: { sizeLimit: '4kb' } } };
 
@@ -45,6 +45,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const me = await getCurrentUser(req);
   if (!me) return res.status(401).json({ error: 'sign in first' });
+  const csrf = checkCsrf(req); if (csrf) return res.status(csrf.status).json(csrf);
   const body: any = typeof req.body === 'string' ? safeJSON(req.body) : (req.body || {});
 
   // ─── /api/domes (no slug): list / create / join ──────────────────────────
@@ -92,7 +93,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (exists.length === 0) break;
       newSlug = `${baseSlug}-${randomHex(2)}`;
     }
-    const inviteCode = randomHex(6);
+    const inviteCode = randomHex(16);
     const ts = now();
     const inserted = await sql`
       INSERT INTO domes (slug, name, owner_user_id, invite_code, created_at)
@@ -135,7 +136,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!name) return res.status(400).json({ error: 'name cannot be empty' });
       updates.name = name;
     }
-    if (body.rotate_invite) updates.invite_code = randomHex(6);
+    if (body.rotate_invite) updates.invite_code = randomHex(16);
     if (!('name' in updates) && !('invite_code' in updates)) {
       return res.status(400).json({ error: 'nothing to update' });
     }

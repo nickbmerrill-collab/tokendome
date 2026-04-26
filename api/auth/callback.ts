@@ -4,6 +4,19 @@ import {
   makeSession, setSessionCookie, publicUrl, encryptAgentToken,
 } from '../../lib/shared';
 
+// Tokendome can be mounted at the origin root or under a path prefix
+// (heyelab.com/tokendome). The post-OAuth redirect must land back on
+// the dashboard, not the bare origin. Derive the path component from
+// the configured public URL so /tokendome/ stays correct.
+function dashboardPath(req: any): string {
+  try {
+    const u = new URL(publicUrl(req));
+    return (u.pathname || '/').replace(/\/?$/, '/');
+  } catch {
+    return '/';
+  }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const code = String(req.query.code || '');
   const stateParam = String(req.query.state || '');
@@ -60,5 +73,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.getHeader('Set-Cookie') as string,
     'ta_oauth=; Path=/; Max-Age=0',
   ].filter(Boolean).flat() as string[]);
-  res.redirect(302, '/');
+  res.redirect(302, dashboardPath(req));
 }

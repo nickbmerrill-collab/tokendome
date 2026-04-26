@@ -167,6 +167,81 @@ export function normalizeDisplayName(raw: unknown): string | null {
   return s;
 }
 
+// ─── Agent-token encryption-at-rest ────────────────────────────────────────
+//
+// Agent tokens are HMAC keys — the agent has the raw secret and signs every
+// ingest payload with it. Storing the raw secret in the DB means a read-only
+// DB leak hands the attacker every active credential. Cleanest fix without
+// invalidating existing tokens: encrypt at rest with AES-256-GCM, key
+// derived from SESSION_SECRET via HKDF. Reads decrypt; writes encrypt.
+// Legacy plaintext rows (no `enc1:` prefix) still verify until a one-shot
+// migration converts them in place.
+const AGENT_ENC_PREFIX = 'enc1:';
+
+function tokenKey(): Buffer {
+  const ikm = Buffer.from(sessionSecret(), 'utf8');
+  // HKDF-SHA256, 32 bytes for AES-256-GCM. The `info` parameter scopes
+  // this purpose so future keys (e.g. install codes) derive from the
+  // same SESSION_SECRET without colliding.
+  return Buffer.from(crypto.hkdfSync('sha256', ikm, Buffer.alloc(0), 'tokendome-agent-token-v1', 32) as ArrayBuffer);
+}
+
+export function encryptAgentToken(plaintext: string): string {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', tokenKey(), iv);
+  const ct = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return AGENT_ENC_PREFIX + Buffer.concat([iv, tag, ct]).toString('base64url');
+}
+
+export function decryptAgentToken(stored: string): string {
+  // Backward-compat: rows written before encryption-at-rest landed are
+  // returned as-is. The migration task rewraps them on the next write.
+  if (!stored || !stored.startsWith(AGENT_ENC_PREFIX)) return stored;
+  const buf = Buffer.from(stored.slice(AGENT_ENC_PREFIX.length), 'base64url');
+  if (buf.length < 12 + 16 + 1) throw new Error('agent token ciphertext too short');
+  const iv = buf.subarray(0, 12);
+  const tag = buf.subarray(12, 28);
+  const ct = buf.subarray(28);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', tokenKey(), iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(ct), decipher.final()]).toString('utf8');
+}
+
+// ─── Durable rate limiter ──────────────────────────────────────────────────
+//
+// Fixed-window counter keyed by an arbitrary string (e.g. "ingest:user:42",
+// "leaderboard:ip:1.2.3.4"). One DB roundtrip per check via UPSERT.
+// Returns { ok: false, retry_after_ms } when the limit is exceeded.
+export async function rateCheck(
+  key: string, limit: number, windowMs: number,
+): Promise<{ ok: boolean; retry_after_ms?: number }> {
+  const t = now();
+  const winFloor = t - windowMs;
+  const sql = db();
+  const rows = await sql`
+    INSERT INTO rate_limits (key, count, window_start)
+    VALUES (${key}, 1, ${t})
+    ON CONFLICT (key) DO UPDATE SET
+      count = CASE WHEN rate_limits.window_start < ${winFloor} THEN 1 ELSE rate_limits.count + 1 END,
+      window_start = CASE WHEN rate_limits.window_start < ${winFloor} THEN ${t} ELSE rate_limits.window_start END
+    RETURNING count, window_start
+  `;
+  const row = (rows as any[])[0];
+  const cnt = Number(row.count);
+  const wstart = Number(row.window_start);
+  if (cnt > limit) return { ok: false, retry_after_ms: Math.max(0, windowMs - (t - wstart)) };
+  return { ok: true };
+}
+
+export function clientIp(req: VercelRequest): string {
+  // Vercel sets x-real-ip when available; x-forwarded-for is the chain.
+  const real = String(req.headers['x-real-ip'] || '').trim();
+  if (real) return real;
+  const xff = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return xff || 'unknown';
+}
+
 // Canonical origin used for OAuth redirect_uri, invite links, OG image URLs,
 // and server-side fetches against our own public surfaces.
 //

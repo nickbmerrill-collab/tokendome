@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import {
   db, now, randomHex, parseCookies, verifyState,
-  makeSession, setSessionCookie, publicUrl,
+  makeSession, setSessionCookie, publicUrl, encryptAgentToken,
 } from '../../lib/shared';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -45,7 +45,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const agent = randomHex(32);
     const rows = await sql`
       INSERT INTO users (github_id, login, avatar_url, agent_token, created_at)
-      VALUES (${gh.id}, ${gh.login}, ${gh.avatar_url}, ${agent}, ${now()})
+      VALUES (${gh.id}, ${gh.login}, ${gh.avatar_url}, ${encryptAgentToken(agent)}, ${now()})
       RETURNING id
     `;
     userId = rows[0].id;

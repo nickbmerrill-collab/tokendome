@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { db, now, getCurrentUser } from '../lib/shared';
+import { db, now, getCurrentUser, rateCheck, clientIp } from '../lib/shared';
 
 // Anonymization rule: every public-facing query returns the user's chosen
 // pseudonym (display_name) when set, falling back to their GitHub login.
@@ -7,6 +7,14 @@ import { db, now, getCurrentUser } from '../lib/shared';
 // never leaks identity.
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // Per-IP throttle. The page polls every 3s, so a single tab generates
+  // ~20/min on its own; 240/min comfortably allows several tabs and
+  // legitimate bursts while capping scrapers.
+  const rl = await rateCheck(`leaderboard:ip:${clientIp(req)}`, 240, 60_000);
+  if (!rl.ok) {
+    res.setHeader('Retry-After', String(Math.ceil((rl.retry_after_ms ?? 60_000) / 1000)));
+    return res.status(429).json({ error: 'rate limited' });
+  }
   const sql = db();
   const t = now();
   const dayAgo = t - 86400 * 1000;

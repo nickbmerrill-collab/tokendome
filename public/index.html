@@ -470,12 +470,18 @@ tailwind.config = {
         <p class="text-xs text-on-surface-variant">One line installs the agent, logs you in, and registers it as a service that auto-starts on every login. Works for any language, any provider, any local model.</p>
         <div class="space-y-1.5">
           <div class="flex items-center justify-between text-[10px] uppercase font-bold text-primary-container tracking-widest font-headline">
-            <span>Paste in your terminal</span>
-            <button data-copy="install-cmd" class="copy-btn flex items-center gap-1 text-secondary hover:text-on-surface text-[10px] uppercase">
-              <span class="material-symbols-outlined text-xs">content_copy</span><span>copy</span>
-            </button>
+            <span>Paste in your terminal <span id="install-code-status" class="ml-1 text-on-surface-variant/70 normal-case font-normal tracking-normal"></span></span>
+            <div class="flex items-center gap-2">
+              <button id="install-code-refresh" class="flex items-center gap-1 text-secondary hover:text-on-surface text-[10px] uppercase">
+                <span class="material-symbols-outlined text-xs">refresh</span><span>refresh</span>
+              </button>
+              <button data-copy="install-cmd" class="copy-btn flex items-center gap-1 text-secondary hover:text-on-surface text-[10px] uppercase">
+                <span class="material-symbols-outlined text-xs">content_copy</span><span>copy</span>
+              </button>
+            </div>
           </div>
-          <pre class="bg-surface-container-lowest p-3 overflow-x-auto"><code id="install-cmd" class="font-data text-xs text-primary whitespace-pre-wrap break-all">curl -fsSL …/install.sh | bash</code></pre>
+          <pre class="bg-surface-container-lowest p-3 overflow-x-auto"><code id="install-cmd" class="font-data text-xs text-primary whitespace-pre-wrap break-all">click refresh to mint a 5-minute install code</code></pre>
+          <p class="text-[10px] text-on-surface-variant/70">The install code is short-lived and single-use, so your long-lived agent token never lands in shell history.</p>
         </div>
         <div class="text-[10px] text-on-surface-variant/70 font-data">Then point any of your services at <code class="text-on-surface-variant">localhost:4000</code>:</div>
         <div class="grid grid-cols-1 gap-1">
@@ -1122,18 +1128,61 @@ async function fetchMe() {
       });
   }
   document.getElementById('token').textContent = m.agent_token;
-  // True one-liner for the CLI: install + login + register as a service that
-  // auto-starts on every login. The install.sh script reads TOKENDOME_TOKEN
-  // and TOKENDOME_SERVICE from the env it's piped into.
-  document.getElementById('install-cmd').textContent =
-    'curl -fsSL ' + location.origin + '/install.sh | TOKENDOME_TOKEN=' + m.agent_token + ' TOKENDOME_SERVICE=1 bash';
-  // SDK one-liner: npm install with the token exported in the same line so
-  // the user has zero env-var setup before their first node run.
+  // SDK install one-liners: SDK reads TOKENDOME_TOKEN at runtime, so the
+  // env-var prefix here is a hint the user can paste verbatim. (npm itself
+  // doesn't consume the var; it's set so the user's *next* shell session
+  // sees it. Or, with the agent installed, the SDK auto-discovers from
+  // ~/.tokendome/config.json and TOKENDOME_TOKEN isn't needed.)
   document.getElementById('sdk-install-cmd').textContent =
     'TOKENDOME_TOKEN=' + m.agent_token + ' npm i ' + location.origin + '/tokendome-anthropic.tgz';
   document.getElementById('oai-install-cmd').textContent =
     'TOKENDOME_TOKEN=' + m.agent_token + ' npm i ' + location.origin + '/tokendome-openai.tgz';
 }
+
+// Mint a fresh install code on demand and assemble the CLI one-liner. The
+// long-lived agent_token never appears in this command — install.sh
+// exchanges the short-lived code server-side and writes the token into
+// ~/.tokendome/config.json.
+let installCodeExpiresAt = 0;
+let installCodeTicker = null;
+async function refreshInstallCode() {
+  const cmdEl = document.getElementById('install-cmd');
+  const statusEl = document.getElementById('install-code-status');
+  const btn = document.getElementById('install-code-refresh');
+  if (!cmdEl) return;
+  btn.disabled = true;
+  statusEl.textContent = '· generating…';
+  try {
+    const r = await fetch('/api/install', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    installCodeExpiresAt = Date.now() + (j.expires_in_ms || 5 * 60 * 1000);
+    cmdEl.textContent =
+      'curl -fsSL ' + location.origin + '/install.sh'
+      + ' | TOKENDOME_INSTALL_CODE=' + j.code
+      + ' TOKENDOME_SERVICE=1 bash';
+    if (installCodeTicker) clearInterval(installCodeTicker);
+    installCodeTicker = setInterval(() => {
+      const left = Math.max(0, installCodeExpiresAt - Date.now());
+      if (left <= 0) {
+        statusEl.textContent = '· expired — click refresh';
+        clearInterval(installCodeTicker);
+        return;
+      }
+      const m = Math.floor(left / 60000);
+      const s = Math.floor((left % 60000) / 1000);
+      statusEl.textContent = '· valid ' + m + ':' + String(s).padStart(2, '0');
+    }, 1000);
+  } catch (e) {
+    statusEl.textContent = '· ✘ ' + (e.message || 'failed');
+  } finally {
+    btn.disabled = false;
+  }
+}
+document.getElementById('install-code-refresh')?.addEventListener('click', refreshInstallCode);
 
 // Setup-card path tabs (data-driven across N panels)
 (() => {

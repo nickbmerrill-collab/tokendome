@@ -120,3 +120,26 @@ CREATE TABLE IF NOT EXISTS import_locks (
   PRIMARY KEY (user_id, provider, source)
 );
 
+-- Fixed-window rate counters keyed by an arbitrary string. Used by the
+-- rateCheck helper in lib/shared.ts to throttle ingest, leaderboard,
+-- OAuth start, and import endpoints. Old rows with stale window_start
+-- can be GC'd; the upsert resets them on next access anyway.
+CREATE TABLE IF NOT EXISTS rate_limits (
+  key TEXT PRIMARY KEY,
+  count INTEGER NOT NULL,
+  window_start BIGINT NOT NULL
+);
+
+-- One-time install codes. The dashboard generates a code, the user pastes
+-- it into a curl one-liner; install.sh exchanges it server-side for the
+-- real agent token. Keeps the long-lived agent_token out of shell history,
+-- terminal scrollback, and command-telemetry pipelines. Expires in 5 min,
+-- single-use (used_at flips on first exchange).
+CREATE TABLE IF NOT EXISTS install_codes (
+  code TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at BIGINT NOT NULL,
+  used_at BIGINT
+);
+CREATE INDEX IF NOT EXISTS idx_install_codes_user ON install_codes(user_id);
+

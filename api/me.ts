@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getCurrentUser, db, publicHandle, normalizeDisplayName, randomHex, checkCsrf } from '../lib/shared';
+import { getCurrentUser, db, publicHandle, normalizeDisplayName, randomHex, checkCsrf, encryptAgentToken, decryptAgentToken } from '../lib/shared';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const u = await getCurrentUser(req);
@@ -44,8 +44,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Use this if you accidentally shared your token in a screenshot or repo.
     if (body.rotate_token === true) {
       const fresh = randomHex(32);
-      await db()`UPDATE users SET agent_token = ${fresh} WHERE id = ${u.id}`;
-      u.agent_token = fresh;
+      await db()`UPDATE users SET agent_token = ${encryptAgentToken(fresh)} WHERE id = ${u.id}`;
+      // Stash the raw secret on the in-memory user so the response below
+      // emits the agent_token the SDK/agent will sign with — the encrypted
+      // form would just look like garbage to the client.
+      u.agent_token = encryptAgentToken(fresh);
     }
     // Email subscription toggle (weekly digest). Setting email='' or null
     // unsubscribes; setting a valid address upserts the row.
@@ -85,8 +88,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     hidden: !!u.hidden,
     subscription,
     avatar_url: u.display_name ? null : u.avatar_url, // hide GitHub avatar when anonymized
-    // "<user_id>.<secret>" — the agent splits on the dot so it knows who it is
-    agent_token: `${u.id}.${u.agent_token}`,
+    // "<user_id>.<secret>" — the agent splits on the dot so it knows who it is.
+    // The DB stores the secret encrypted at rest; we decrypt here to emit
+    // the raw secret the agent's HMAC depends on.
+    agent_token: `${u.id}.${decryptAgentToken(u.agent_token)}`,
   });
 }
 

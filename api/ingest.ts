@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import * as crypto from 'node:crypto';
-import { db, now, hmacHex, sha256Hex } from '../lib/shared';
+import { db, now, hmacHex, sha256Hex, decryptAgentToken, rateCheck } from '../lib/shared';
 import { costCents } from '../lib/pricing';
 
 type IncomingEvent = {
@@ -65,6 +65,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (users.length === 0) return res.status(401).send('no user');
   const user = users[0] as any;
 
+  // Per-user durable rate limit. Burst-tolerant: 600 ingest calls per minute
+  // is well above what an honest agent (3s flush cadence × N processes) hits.
+  // Replay protection still applies on top of this.
+  const rl = await rateCheck(`ingest:user:${user.id}`, 600, 60_000);
+  if (!rl.ok) {
+    res.setHeader('Retry-After', String(Math.ceil((rl.retry_after_ms ?? 60_000) / 1000)));
+    return res.status(429).send('rate limited');
+  }
+
   let rawBody: string;
   try {
     rawBody = await readRawBody(req, BODY_LIMIT);
@@ -73,7 +82,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const bodyHash = sha256Hex(rawBody);
-  const expected = hmacHex(user.agent_token, `${ts}.${bodyHash}`);
+  // Decrypt the stored agent token before recomputing the HMAC. Legacy
+  // (pre-encryption) rows pass through unchanged via decryptAgentToken.
+  const userSecret = decryptAgentToken(user.agent_token);
+  const expected = hmacHex(userSecret, `${ts}.${bodyHash}`);
   if (!timingSafeEqualHex(expected, sig)) {
     return res.status(401).send('bad signature');
   }
